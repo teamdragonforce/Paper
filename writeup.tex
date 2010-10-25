@@ -84,8 +84,7 @@ over the FSAB.
 
 \begin{figure}
   \centering
-    %\includegraphics[width=0.4\textwidth]{Tile-diagram.pdf}
-    Eat it.
+    \includegraphics[width=0.49\textwidth]{block_diagram.pdf}
   \caption{High-level system diagram.} \label{system_diagram}
 \end{figure}
 
@@ -219,6 +218,13 @@ master needs to track.
 
 The following are known implementations of the FSAB specification:
 
+\begin{figure}
+  \centering
+    \includegraphics[width=0.49\textwidth]{FSAB-IxFIF.pdf}
+  \caption{Clocking for memory controller.} \label{mshim_clock}
+\end{figure}
+
+
 \begin{itemize}
 \item{Caches}
 \item{Memory Controller}
@@ -298,10 +304,38 @@ to zero, so that all data ports can be safely OR'ed together.
 
 \section{Core Microarchitecture}
 
+is a hilariously bad disaster.  Let us never speak of it again.
+
 \section{Peripheral Architecture}
+
+is another section to be filled in.
 
 \section{Tools}
 
+virtexsquared is developed using some standard tools, and some custom tools. 
+The parts of the virtexsquared development system that appared to be of
+particular use are elucidated below.
+
+\subsection{Xilinx XST}
+
+\subsection{verilog-mode}
+
+\subsection{GNU make}
+
+\subsection{makecdc for ChipScope}
+
+\subsection{git}
+
 \section{Schedule}
+
+Gantt chart is figure 3.  We are behind it.  I ran out of time to write
+this because I spent all night debugging.
+
+\begin{figure*}
+  \centering
+    \includegraphics[width=\textwidth]{gantt-chart.png}
+  \caption{I hate Xilinx.} \label{mshim_clock}
+\end{figure*}
+
 
 \end{document}
