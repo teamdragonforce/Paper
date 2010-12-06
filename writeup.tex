@@ -27,11 +27,10 @@ Bradley Yoo\\
 
 \begin{abstract}
 
-The authors provide an update as to the ongoing development of an ARM-like
+The authors provide a report on the completed development of an ARM-like
 System-on-Chip built on a Xilinx Virtex-5 FPGA.  A high-level overview of
 the design is provided, as well as detailed examinations of various
-submodules within the system.  The status of the project schedule is briefly
-touched on.
+submodules within the system.  
 
 \end{abstract}
 
@@ -40,37 +39,36 @@ touched on.
 \section{Introduction}
 
 In fulfillment of the 18-545 Advanced Digital Design Capstone, this group
-is designing and implementing a peripheral layer for an ARM-like core. 
+designed and implemented a peripheral layer for an ARM-like core. 
 The system is built around two memory buses, and contains I/O cores to
 interface with a smattering of peripherals, including:
 
 \begin{itemize}
-\item{DVI/VGA output from Chrontel CH7301C; video output will be cached in a
-framebuffer in main memory.  Various acceleration primitives will be added
-as needed for performance.}
-\item{AC'97 audio with Analog AD1981B; audio buffering will be performed in
-a simple main memory ring buffer.}
+\item{DVI/VGA output from Chrontel CH7301C; video output is cached in a
+framebuffer in main memory.}
+\item{RS-232 serial output.}
+\item{AC'97 audio with Analog AD1981B; audio output is cached in a
+a simple main memory buffer.}
 \item{PS/2 keyboard.}
-\item{CompactFlash via the Xilinx SystemACE controller; software running on
-the core will be capable of reading the filesystem on the CompactFlash
-module.}
+\item{CompactFlash via the Xilinx SystemACE controller.}
 \item{DDR2 SODIMM; interface glue is provided using Xilinx's predesigned
 Memory Interface Generator (MIG) IP.}
 \end{itemize}
 
-The system's functionality will be demonstrated using a small game. We
-endeavor to produce a minimalistic clone of Dance Dance Revolution, with the
-PS/2 keyboard used for input.  Assets will be taken from the open-source
-game Stepmania.  The game will be loaded (and the core proven) using the
-open-source bootloader U-Boot.  If time permits, Linux will be booted on the
-core.
+The system contains various non-I/O cores to provide additional functionality,
+including:
 
-A side goal of this peripheral layer is to be reused in 18-447; the system
+\begin{itemize}
+\item{Timer}
+\item{Bootstrap program preloader}
+\item{Accelerators: memory set and image clear}
+\end{itemize}
+
+A primary goal of this peripheral layer is to be reused in 18-447; the system
 is designed to be simple to interface with from a core perspective, and
 hence usable for students in an introductory computer architecture class. 
 The core, in particular, has a moderate \textit{anti}-goal of high
-performance; if there is time for high performance, it should be applied to
-adding additional peripherals.
+performance.
 
 \section{Memory Architecture}
 
@@ -91,71 +89,84 @@ over the FSAB.
 
 \subsection{Fast System Access Bus}
 
-The FSAB is a transaction-oriented bus designed primarily for accessing
-high-latency memories such as DRAMs. The vast majority of the memory
-accesses on the system during normal operation (i.e., not at
-boot/configuration time) will happen via the FSAB.
+The FSAB is a transaction-oriented bus designed primarily for accessing high-
+latency memories such as DRAMs. The vast majority of the memory accesses on 
+the system during normal operation (i.e., not at boot/ configuration time) 
+will happen via the FSAB. 
 
 \subsubsection{Terminology}
 
-The FSAB works in terms of `transactions'. A read transaction shall consist
-of the `read request', and `read data' phases. A write transaction shall
+The FSAB works in terms of `transactions'. A read transaction shall consist 
+of the `read request', and `read data' phases. A write transaction shall 
 consist only of the `write data' phase.
 
-Devices attached to the FSAB are classified as `masters' and `slaves'; a
-device that initiates transactions (reads and writes to main memory) is a
+Devices attached to the FSAB are classified as `masters' and `slaves'; a 
+device that initiates transactions (reads and writes to main memory) is a 
 master, and a device that completes transactions is a slave.
 
-At times, it may be useful to discuss directions on the FSAB. For the
-purposes of this discussion, data that is traveling from a master to a slave
-is considered `outbound', and data that initiates at the slave and returns
-to a master is considered `inbound'.
+At times, it may be useful to discuss directions on the FSAB. For the purposes
+of this discussion, data that is traveling from a master to a slave is 
+considered `outbound' (and so signals for that purpose will begin with fsabo); 
+similarly, data that initiates at the slave and returns to a master is 
+considered `inbound' (and so signals for that purpose will begin with fsabi).
+
 
 \subsubsection{Conceptual Overview}
 
-virtexsquared, in its first incarnation, will only have a single memory
-controller. For that reason, the FSAB will be defined to have only one slave
-device - but since many peripherals may wish to do DMA access to or from
-main memory, the FSAB will be defined to potentially have many masters. The
-fact that only one slave device exists shall not be extensively exploited in
-either the design or implementation of the FSAB, since at a later time, a
-second memory controller may be interesting.
+virtexsquared, in its first incarnation, will only have a single memory 
+controller. For that reason, the FSAB will be defined to have only one slave 
+device - but since many peripherals may wish to do DMA access to or from main 
+memory, the FSAB will be defined to potentially have many masters. The fact 
+that only one slave device exists shall not be extensively exploited in either 
+the design or implementation of the FSAB, since at a later time, a second 
+memory controller may be interesting.
 
-Since many memory controllers are capable of handling multiple pipelined
-requests, the FSAB supports multiple transactions in flight at a time.  The
-slave will arbitrate these requests with a debit-credit system.  Similarly,
-contention between masters will be resolved with an arbiter module that also
-performs queueing and debit-credit arbitration.  In this regard, the bus
-arbiter should be ``invisible'' to a master; the debit-credit system should
-be interface-identical as if the master were talking directly to the slave.
+Since many memory controllers are capable of handling multiple pipelined 
+requests, the FSAB supports multiple transactions in flight at a time. The 
+slave will arbitrate these requests with a debit-credit system. Similarly, 
+contention between masters will be resolved with an arbiter module that also 
+performs queueing and debit-credit arbitration. In this regard, the bus 
+arbiter should be ``invisible'' to a master; the debit-credit system should be 
+interface-identical as if the master were talking directly to the slave.
 
-Most operations that peripherals on the FSAB will perform will be in similar
-sizes.  For instance, the I\$ and D\$ will always read sizes of a single
-cache line; the TLB will generally read page directory entries at a time;
-and the framebuffer will generally load half a FIFO's worth or so at a time. 
-The general case, anyway, will not be a read of a single word.  Similarly,
-writes will often be localized to each other.  To facilitate this, each FSAB
-transaction will have a count of words up to some defined maximum along with
-the command and address.  The address shall autoincrement with each datum
-sent.  Since not every datum may be interesting for a write, a "write mask"
-should also be sent with every word written.
+Most operations that peripherals on the FSAB will perform will be in similar 
+sizes. For instance, the I\$ and D\$ will always read sizes of a single cache 
+line; the TLB will generally read page directory entries at a time; and the 
+framebuffer will generally load half a FIFO's worth or so at a time. The 
+general case, anyway, will not be a read of a single word. Similarly, writes 
+will often be localized to each other. To facilitate this, each FSAB 
+transaction will have a count of words up to a defined maximum of 8 along with 
+the command and address. Inside each transaction, the address being written to 
+shall autoincrement with each datum sent. Since not every datum may be 
+interesting for a write, a ``write mask'' is also sent with every word written.
 
-Since masters are isolated from each other by one or more arbiters, it is
-generally not possible for one master to know what another master is doing. 
+Since masters are isolated from each other by one or more arbiters, it is 
+generally not possible for one master to know what another master is doing.
 \footnote{This combined with the fact that writes happen on a delay -- that
 is, when the memory controller gets around to it -- may pose a problem. 
 Specifically, a program that writes to memory and then causes the cache line
 to be read in again (or that kicks off a read on another device using the
 SPAM) should be careful to verify that the write completes before the read
 completes.  Depending on the specifics of the design and the ordering, this
-may or may not be a problem, but it should be carefully considered.} Lacking
-any other form of cache coherency protocols (such as MOESI), a system based
-around the FSAB is not cache-coherent!  This means that the applications
-programmer must take extra care to make sure that all data is synchronized
-to main memory before allowing another peripheral to access said data.  (For
-instance, if the programmer wishes to write new data to the frame buffer
-before flipping pages, he must cause the CPU to clean that cache line by
-some mechanism first.)
+may or may not be a problem, but it should be carefully considered.} Lacking 
+any other form of cache coherency protocols (such as MOESI), a system based 
+around the FSAB is not cache-coherent! This means that the applications 
+programmer must take extra care to make sure that all data is synchronized to 
+main memory before allowing another peripheral to access said data. (For 
+instance, if the programmer wishes to write new data to the frame buffer 
+before flipping pages, he must cause the CPU to clean that cache line by some 
+mechanism first. In the current implementation, the data cache is implemented 
+as being write-through, so no such synchronization issue takes place.)
+
+The bus protocol is designed to be easy to implement by a DRAM-based slave. 
+For that reason, the length of a read or write request is limited not just by 
+the maximum, but by the alignment of the request. That is to say, if a request 
+is only aligned to a four-qword boundary, but not to an eight-qword boundary, 
+then the maximum size of the request is four qwords; a request of five or more 
+qwords results in undefined behavior. (On the current DRAM-backed 
+implementation, the resulting data comes from wrapping around the row buffer; 
+on the current simulation-backed implementation, the resulting data comes from 
+subsequent linear addresses.) 
 
 \subsubsection{Design Overview: Portlist}
 
@@ -213,6 +224,16 @@ asserted (or the credit may be queued).
 The did field of each transaction shall be set as per each master's DID
 assignment. The subdid may be set according to any internal state that the
 master needs to track.
+
+Some attention should be given to the mechanisms of clock distribution. In 
+particular, it is permissible (and indeed often the case) that the inbound FSAB 
+and outbound FSAB buses may be on different clock domains; usually the inbound 
+FSAB clock comes directly from the slave, but the outbound FSAB clock is 
+synchronous with the logic from the driving module. The outbound FSAB interface 
+is then synchronized to the slave's clock in the arbiter. \footnote{This may be
+considered a bug, as it departs from the conceptual goal that the bus arbiter 
+is invisible to the master. From this perspective, it is preferable to have all
+portions of the FSAB on the same clock domain, i.e. the slave's.}
 
 
 \subsubsection{Known implementations}
@@ -289,19 +310,21 @@ the rest of the fields. This happens for exactly one cycle. Some time later
 for one cycle to indicate that the request has been filled. Inbound data
 shall be valid on the same cycle.
 
-No new request shall be specified until either a previous request has
-returned, or a previous request has timed out. A request shall time out
-after no fewer than 128 cycles.
+No new request shall be specified until either a previous request has returned, 
+or a previous request has timed out. A request shall time out after no fewer 
+than 128 cycles; the current DCache implementation times out after 256 cycles. 
+When a device is not specifying data inbound, it shall drive its output port to 
+zero; this allows the bus to simply OR together all responses.
 
-When a device is not specifying data inbound, it shall drive its output port
-to zero, so that all data ports can be safely OR'ed together.
+Since the SPAM bus is always on the core's clock domain, some synchronization 
+may be needed for CSRs on a different clock domain. Standard modules have been 
+provided to synchronize reads and writes; for more information on those, see 
+the documentation for the CSRAsync modules. 
 
 \section{Core Microarchitecture}
 
 \section{Peripheral Architecture}
 
 \section{Tools}
-
-\section{Schedule}
 
 \end{document}
