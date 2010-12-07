@@ -70,7 +70,18 @@ hence usable for students in an introductory computer architecture class.
 The core, in particular, has a moderate \textit{anti}-goal of high
 performance.
 
+\part{Hardware Design}
+
+\label{par:hardware}
+
+In this part, we provide an overview of the design and implementation
+decisions involved in the \textit{hardware} part of the system.  As a whole,
+this section corresponds to the \texttt{rtl/} directory in the top level
+source repository; the astute reader may follow along within.
+
 \section{Memory Architecture}
+
+\label{sec:memory}
 
 The system, as a whole, is partitioned into two major access paths -- the
 FSAB (\textit{Fast System Access Bus}), and the SPAM Bus (\textit{Slow
@@ -87,6 +98,8 @@ over the FSAB.
 \end{figure}
 
 \subsection{Fast System Access Bus}
+
+\label{sec:fsab}
 
 The FSAB is a transaction-oriented bus designed primarily for accessing high-
 latency memories such as DRAMs. The vast majority of the memory accesses on 
@@ -254,6 +267,7 @@ The following are known implementations of the FSAB specification:
 \end{itemize}
 
 \subsection{Slow Peripheral Access Memory}
+\label{sec:spam}
 
 The SPAM bus is a word-oriented one-access-at-a-time bus designed primarily
 for accessing configuration space registers (CSRs) on peripherals.
@@ -329,11 +343,328 @@ the documentation for the CSRAsync modules.
 
 \section{Core Microarchitecture}
 
-is a hilariously bad disaster.  Let us never speak of it again.
+As part of the virtexsquared system, the core must conform to the defined
+bus protocols on the external interface (see section \ref{sec:memory}); but
+within the core itself, anything goes.  Although the ARM core will not be
+reused in future projects, the caches and global interface will be, and
+hence potentially merit discussion.
+
+\subsection{ARM Core}
+
+The ARM core consists of the register file, fetch, decode, issue, execute,
+memory, and the writeback units based off of Joshua's early FireARM core.
+None of them are any good, and hence no more of them will be mentioned.
+
+\subsection{Caches}
+The caches each have a latency of one cycle. Upon missing, they send
+requests for fills to the FSAB arbiter, which in turn propagates up to the
+main memory. The caches have a zero-cycle latency for whether they have
+missed; that is to say, the lookup takes place on the same cycle. In
+addition to the standard FSAB connections, the Icache's port list is as
+such:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input  [31:0] ic__rd_addr_0a;
+input         ic__rd_req_0a;
+output        ic__rd_wait_0a;
+output [31:0] ic__rd_data_1a;
+\end{lstlisting}
+
+and the Dcache's port list is as such: (excluding SPAM and FSAB connections)
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input  [31:0] dc__addr_3a;
+input         dc__rd_req_3a;
+input         dc__wr_req_3a;
+output        dc__rw_wait_3a;
+input  [31:0] dc__wr_data_3a;
+output [31:0] dc__rd_data_4a;
+\end{lstlisting}
+
+The Icache and Dcache differ in two important ways. To wit:
+
+\begin{itemize}
+\item{The Icache is multi-way set associative. The number of ways is
+controlled through a parameter. With the current Dcache architecture, this
+is not feasible (due to the nature of writes).}
+\item{The Dcache has a SPAM interface. The Icache cannot, because the SPAM
+is single-master.}
+\end{itemize}
+
+Beyond these differences, though, the Icache and Dcache are very similar
+internally. Both modules have two clock domains (the core clock and the FSAB
+clock); data is received back inbound on the FSAB clock, and the core is
+serviced on the core clock. Synchronization is performed internally in the
+form of a read and write request service flag, similar to the internals of
+the synchronizers.
+
+\section{FSAB Internal Mechanisms}
+\label{sec:fsabinternal}
+
+Although the FSAB (described in the high level memory system overview; see
+section \ref{sec:memory}) is conceptually simple, there are a few specific
+portions of it that merit further explanation.  In particular, the system's
+instruction cache is capable of reading only from the FSAB, leaving the
+problem of how to bootstrap the system; and the FSAB specification makes no
+mention of the mechanics of multiplexing multiple FSAB masters onto one bus. 
+These issues are solved, respectively, by the FSAB Preloader and the FSAB
+Arbiter.
+
+\subsection{Preloader}
+\label{sec:preloader}
+
+In order to boot the system, instructions must first be somehow loaded into
+memory, since the instruction cache is not capable of fetching from an
+alternative non-volatile source. A few alternative options for this were
+considered, and ultimately rejected. In brief, we considered:
+
+\begin{itemize}
+\item{adding an alternate path to the instruction cache during boot. This
+was rejected, since it would add a potentially substantial amount of logic
+to the critical path.}
+\item{adding a SPAM interface to the instruction cache. This was rejected,
+since the SPAM bus is not nominally capable of multi-master support, and
+adding an arbitration mechanism would be necessary, which the protocol does
+not easily support.}
+\item{modifying the reset value for the instruction cache. This was rejected
+since the code size available would be very limited, and support within
+synthesis tools would be likely to be poor.}
+\item{adding a second, non-volatile, slave to the FSAB. This was rejected
+since the bus's architecture was mostly in place already, and a redesign to
+support that would prove difficult in light of the requirement that
+transactions return in order.}
+\item{adding a preloader as an FSAB master. This was ultimately accepted.}
+\end{itemize}
+
+The preloader loads boot0, which is the first running software on the
+system, into main memory.  (For more details about the boot sequence, see
+section \ref{sec:boot}.) It acts as a simple FSAB master, with one
+additional output - it has a mechanism to hold the CPU core in reset.  Since
+it never does any reads, it has no fsabi interface; it only does size-8
+writes to incrementing addresses.  Once DRAM has successfully been loaded,
+the preloader has no function.  The data that it loads is stored in a ROM
+that is implemented as a BRAM on an FPGA and as a simple ROM in simulation;
+it is both synthesizable and simulatable.
+
+The ROM for the preloader is compiled in from a \texttt{\$readmemh}
+statement.  In synthesis, it is copied in during the build process (see
+section \ref{sec:build}) from \texttt{sw/boot0/boot0.pad.hex64}; in
+simulation, it is copied in from \texttt{tests/testbench.pad.hex64}.  These
+are generated by a combination of \texttt{xxd} and \texttt{dd} during
+software build.
+
+\subsection{Arbiter}
+\label{sec:arbiter}
+
+Since the FSAB is a multimaster system, but the slave memory module has only
+one master memory interface, there must be a multiplexing module to issue
+requests in sequence to the slave memory.  In the system, this module is
+called the FSABArbiter; it has a parameterizable number of fsabo ports as
+inputs, and a single fsabo port as an output.  Given the debit/credit
+system, not every request needs to be immediately dispatched to the slave
+memory; indeed, each fsabo virtual-slave in the arbiter has a built in FIFO
+(see section \ref{sec:fifo}) to buffer requests.
+
+The buffer on the receiving end of each fsabo master also functions as a
+clock domain synchronizer; by using the asynchronous FIFO, fsabo packets can
+be safely transitioned from any system clock domain to the DRAM's clock
+domain. Each buffer has, as a basic interface, a signal from the main
+arbiter to begin outputting a transaction to the slave (if one is
+available), and a signal to the main arbiter reporting completion of the
+current transaction. (This may take zero cycles, if no transaction was
+available, or it may take up to eight cycles, in the case of a
+maximum-length write.)
+
+The top-level arbiter makes no attempt at providing fairness between
+peripherals.  The original goal was to include support for fairness, but it
+was later discovered that doing so would require adding substantial logic to
+the system, and potentially for \textit{negative} benefit; guaranteeing
+bandwidth to the framebuffer and AC'97 proves to be invaluable in the face
+of a high-bandwidth fill component that could potentially cause the
+framebuffer's DMA engine to underrun.
+
+\subsubsection{Interface}
+
+Some mention should be given to the portlist, and how that is managed. Since
+arrays of bitfields (i.e., two-dimensional bitfields) cannot be passed in
+through a portlist in Verilog, all signals from the masters are concatenated
+together into inputs of parameterized width. Internally, this looks somewhat
+like this:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+...
+input [(FSAB_DEVICES*(FSAB_DATA_HI+1))-1:0]
+      fsabo_datas;
+...
+\end{lstlisting}
+
+
+Keeping all of the input signals synchronized and ordered, though,
+especially in the face of the need for adding and removing new types of
+modules quickly, sometimes proved difficult. To maintain our sanity in the
+top-level module, we employed verilog-mode's \texttt{AUTOLISP} extensions along with
+a small chunk of code provided to us by Michael Arntzenius. This prefixer
+module is used as part of an \texttt{AUTO\_TEMPLATE}, as shown:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+/*AUTO_LISP(setq list-of-prefixes '("pre" "fb"
+            "audio" "ic" "dc" "accel_clear"))*/
+...
+/* FSABArbiter AUTO_TEMPLATE (
+    ...
+    .fsabo_valids(@"(template
+        \"__fsabo_valid\")"),
+    .fsabo_modes(@"(template
+        \"__fsabo_mode[FSAB_REQ_HI:0]\")"),
+    .fsabo_dids(@"(template
+        \"__fsabo_did[FSAB_DID_HI:0]\")"),
+\end{lstlisting}
+
+When verilog-mode re-templates when \texttt{make auto} is run, all
+instantiated ports in the arbiter will be automatically updated.  It is
+important to note that the wire arrays \texttt{fsabo\_clks} and
+\texttt{fsabo\_rst\_bs} must also be updated when a new device is added to the
+\texttt{list-of-prefixes}; failing to do so will result in five hour long
+debug sessions.  The arbiter assigns priority to incoming transactions based
+on the order of the \texttt{list-of-prefixes}; that is to say, in the above
+example, the preloader takes all available bandwidth before the framebuffer,
+which takes remaining bandwidth before the AC'97 controller, etc.  The
+screen-clear accelerator takes bandwidth \textit{last}, because it would otherwise
+starve the rest of the system for bandwidth.
+
+
 
 \section{Peripheral Architecture}
 
 is another section to be filled in.
+
+\part{Software Design}
+
+In this part, we mention salient libraries that we designed to abstract some
+of the details of the hardware.
+
+\part{Miscellaneous System Notes}
+
+In this part, we describe other portions of the system that do not easily
+fit as being called either hardware or software, but that still merit
+discussion.
+
+\section{virtexsquared Boot Sequence}
+\label{sec:boot}
+
+Since the sequence of steps that virtexsquared takes to boot is somewhat
+unlike a modern x86 PC, it is worth discussing in brief. Specifically, in
+order to boot, control of the system first starts with the SystemACE, is
+passed to the preloader, then to boot0, then boot1, and then finally to
+application code.
+
+\subsection{SystemACE}
+
+When the board is first powered on, there is no configuration loaded on the
+FPGA. In order to get the virtexsquared system running at all, the
+configuration must be somehow loaded. If the CompactFlash card is inserted
+(and contains the BOOT.ACE file generated from the bitstream), then the
+Xilinx SystemACE CompactFlash controller on the board will begin programming
+the FPGA over the configuration JTAG interface; this procedure takes about a
+second and a half. If CompactFlash FPGA programming fails, then the red LED
+on the board will either blink or illuminate statically.
+
+The SystemACE can also be removed from this stage of boot by programming the
+board using the external JTAG connector; this is useful when debugging the
+design using ChipScope.
+
+When the FPGA is programmed, the internal circuitry begins a post-reset
+sequence.
+
+\subsection{Preloader}
+
+Once the FPGA has been configured, the PLLs and DCMs have locked, and the
+DRAM PHY has self-calibrated, the preloader is taken out of reset, and
+begins performing DMA from an internal block RAM into the very beginning of
+DRAM (address 0x0). The preloader DMAs in 8-qword blocks, and transfers a
+total of 16 kBytes of data into DRAM. While this occurs, the core is held in
+reset using a signal OR'ed in with the normal reset path.
+
+Once the preloader completes, the core is taken out of reset and allowed to
+begin operating.
+
+The operation and design behind the preloader is discussed in more detail in
+section \ref{sec:preloader}.
+
+\subsection{boot0}
+
+boot0 is the first code that is executed by the ARM core. It begins with a
+small fragment of ARM assembly, called \texttt{crt0}, which sets up a stack
+pointer, and zeroes the \texttt{.bss} section.  Once it has done those, the
+C runtime environment is ready, and \texttt{crt0} jumps into the main
+function.  The main function prints some text to the console, initializes
+the SystemACE's microprocessor interface, paints the boot display, and loads
+and jumps to boot1.
+
+Importantly, boot0 does not know anything about any executable formats, and
+it does not know anything about filesystems; the limitation of its
+intelligence is in finding a partition that is marked as bootable, and
+loading the first 512 kBytes of that partition to a specific address in
+memory (0x4000). If any sector read fails, then boot is aborted; if the
+partition cannot be found, or the CompactFlash is not present, then boot is
+also aborted. boot0 has a minimum feature set because it is baked into the
+preloader's Block RAM; making changes to boot0 costs 20 minutes to recompile
+the core, and so it is of the utmost import that boot0 be solid, versatile,
+and stable.
+
+If boot is aborted, or the boot1 program returns control to boot0, then the
+message ``\texttt{Control returned to boot0; press reset to retry boot}'' will
+be printed to the serial console, and the colorbars and color-cycling
+virtexsquared logo are displayed on screen.  (See figure \ref{img:boot0}.)
+
+\begin{figure}
+  \centering
+    \includegraphics[width=0.49\textwidth]{boot0.png}
+  \caption{boot0's failure display.} \label{img:boot0}
+\end{figure}
+
+\subsection{boot1}
+
+boot1 is the next stage of code executed by the ARM core. It, too, begins
+with a \texttt{crt0}, but this \texttt{crt0} does not need to set up the
+stack pointer; all future stack usage on the system will be on the same
+stack as that set up by boot0.  The main differences from boot0 to boot1
+are:
+
+\begin{itemize}
+\item{boot1 does not paint a splash screen. The system has already been
+shown to be "alive" by boot0; boot1 needs to take no further steps in that
+regard.}
+\item{boot1 is capable of reading the FAT16 partition on the CompactFlash.
+boot0 does not have this capability, since boot0's feature set must be
+small.}
+\item{boot1 is capable of loading an ELF file. boot0 loads a flat memory
+image, as created by \texttt{objcopy}; boot1 loads full ELF programs that
+may have many segments.}
+\item{boot1 is replaceable with a minimum of pain by \texttt{dd}'ing over a
+partition; boot0 requires a resynthesis to replace.}
+\end{itemize}
+
+When boot1 takes control of the system, it first initializes the SystemACE,
+and then mounts the FAT16 partition. It then prints the contents of the root
+directory to the serial console. If GAME.ELF exists on the partition, boot1
+loads it into memory at 0x01000000 (+16MB), and then hands the loaded image
+off to the ELF loader. If all of the above succeed, boot1 prints a message
+indicating that it is transferring control to the application code, and then
+jumps to the game's entry point.
+
+If boot1 fails, it may emit any of a few diagnostics. The message
+``\texttt{boot1 exiting}'' indicates that for some reason, boot1 completed
+and is returning control to boot0.  The message ``\texttt{ELF loading
+failed}'' indicates that boot1's ELF loader determined that the file format
+was invalid for some reason; common causes are a flash card that has not
+been properly unmounted, and hence had become corrupted.
+
+\subsection{Application}
+
+Once boot1 has loaded GAME.ELF from the CompactFlash card, the application
+is running. The initialization sequence of the application code involves
+loading a series of resources and eventually presenting a menu.
 
 \section{Tools}
 
@@ -352,6 +683,11 @@ particular use are elucidated below.
 \subsection{j4cbo}
 
 \subsection{git}
+
+\part{Project Logistics}
+
+In this part, we describe the logistics of the completion of this project,
+including miscellaneous sections required for completion of this report.
 
 \section{Schedule}
 
