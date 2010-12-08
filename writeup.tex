@@ -95,7 +95,7 @@ over the FSAB.
   \centering
     \includegraphics[width=.8\textwidth]{block_diagram.pdf}
   \caption{High-level system diagram. A red square in the corner of a module
-           indicates a module where a chipscope ILA is present and can easily
+           indicates a module where a ChipScope ILA is present and can easily
            be enabled.}
   \label{system_diagram}
 \end{figure}
@@ -155,23 +155,17 @@ the command and address. Inside each transaction, the address being written to
 shall autoincrement with each datum sent. Since not every datum may be 
 interesting for a write, a ``write mask'' is also sent with every word written.
 
-Since masters are isolated from each other by one or more arbiters, it is 
+Since masters are isolated from each other by one or more arbiters, it is
 generally not possible for one master to know what another master is doing.
-\footnote{This combined with the fact that writes happen on a delay -- that
-is, when the memory controller gets around to it -- may pose a problem. 
-Specifically, a program that writes to memory and then causes the cache line
-to be read in again (or that kicks off a read on another device using the
-SPAM) should be careful to verify that the write completes before the read
-completes.  Depending on the specifics of the design and the ordering, this
-may or may not be a problem, but it should be carefully considered.} Lacking 
-any other form of cache coherency protocols (such as MOESI), a system based 
-around the FSAB is not cache-coherent! This means that the applications 
-programmer must take extra care to make sure that all data is synchronized to 
-main memory before allowing another peripheral to access said data. (For 
-instance, if the programmer wishes to write new data to the frame buffer 
-before flipping pages, he must cause the CPU to clean that cache line by some 
-mechanism first. In the current implementation, the data cache is implemented 
-as being write-through, so no such synchronization issue takes place.)
+Lacking any other form of cache coherency protocols (such as MOESI), a
+system based around the FSAB is not cache-coherent! This means that the
+applications programmer must take extra care to make sure that all data is
+synchronized to main memory before allowing another peripheral to access
+said data. (For instance, if the programmer wishes to write new data to the
+frame buffer before flipping pages, he must cause the CPU to clean that
+cache line by some mechanism first. In the current implementation, the data
+cache is implemented as being write-through, so no such synchronization
+issue takes place.)
 
 The bus protocol is designed to be easy to implement by a DRAM-based slave. 
 For that reason, the length of a read or write request is limited not just by 
@@ -250,14 +244,13 @@ considered a bug, as it departs from the conceptual goal that the bus arbiter
 is invisible to the master. From this perspective, it is preferable to have all
 portions of the FSAB on the same clock domain, i.e. the slave's.}
 
-
 \subsubsection{Known implementations}
 
 The following are known implementations of the FSAB specification:
 
 \begin{figure}
   \centering
-    \includegraphics[width=0.49\textwidth]{FSAB-IxFIF.pdf}
+    \includegraphics[width=0.85\textwidth]{FSAB-IxFIF.pdf}
   \caption{Clocking for memory controller.} \label{mshim_clock}
 \end{figure}
 
@@ -534,6 +527,283 @@ example, the preloader takes all available bandwidth before the framebuffer,
 which takes remaining bandwidth before the AC'97 controller, etc.  The
 screen-clear accelerator takes bandwidth \textit{last}, because it would otherwise
 starve the rest of the system for bandwidth.
+
+\section{Memory Controller}
+
+In the virtexsquared memory system (see section \ref{sec:memory}), the
+memory controller is the sole client on the FSAB.  The memory controller
+acts as an intermediary between the FSAB and the coregen-produced Memory
+Interface Generator (MIG).
+
+\subsection{Interfaces}
+
+On the side facing the FSAB and the rest of the virtexsquared system, the
+memory controller behaves as a slave as specified in the FSAB specification
+(see section \ref{sec:fsab}).
+
+On the side facing the MIG, the memory controller behaves as specified in
+the Xilinx Memory Interface Generator documentation.
+
+\subsection{Implementation}
+
+\begin{figure}
+  \centering
+    \includegraphics[width=0.85\textwidth]{FSABMemory.pdf}
+  \caption{Internals of the memory controller.} \label{fig:fsabmemory}
+\end{figure}
+
+
+The memory controller is best described by tracing the lifetime of a request
+as it is made on the FSAB, passes through the memory controller and MIG, and
+is returned to the requesting device. At the first packet of the request,
+the device identifiers, address, and length are stored in the request info
+FIFO. If the request is a write request, the controller reads packets of
+data into the data FIFO until the entire request is stored in the FIFO. Each
+entry in the data FIFO is two packets wide; the MIG requires data to be
+double-wide to facilitate DDR memory. If a write request is not aligned, the
+controller inserts a packet's worth of masked data at the front of the
+request.
+
+Once the entire transaction has been stored in the FIFOs, the controller
+sends it to the MIG. The MIG performs burst operations of a standard length
+(in the current implementation, 8 words of 64 bits each; because the memory
+is DDR, it takes four clock cycles to transmit or receive a burst). The
+request begins with a write to the MIG address and command FIFOs. On a write
+request, the first write to the data and mask FIFOs is in the same clock
+cycle, and the rest of the burst follows on consecutive cycles. If the
+actual request is shorter than the burst length, masked data is written for
+the remainder of the burst. On a read request, the device identifier and
+request length are stored in the output request info FIFO.
+
+On a read request, some time after sending the request to the MIG, the MIG
+will send data back. This data is read into the output data FIFO. When the
+data FIFO becomes not empty, the controller reads the device identifier and
+length from the request FIFO and the first row from the data FIFO. Data is
+returned to the device, with reads from the double-width FIFO every two
+packets, until the full length has been transmitted.
+
+\subsection{Known Bugs}
+
+\begin{itemize}
+\item{Reads not aligned to whatever boundary the MIG wants are incorrect
+(the address is not stored in the output-side request info FIFO, so the
+output side has no way to know that the first data the MIG returns is not
+the requested data).}
+\item{Reads not of the full burst length may mess everything up, since I
+don't think we discard the rest of the data the MIG returns in its burst.}
+\end{itemize}
+
+\section{Simple DMA Read Controller}
+\label{sec:dmac}
+
+The Simple DMA (Direct Memory Access) Read Controller provides a FIFO-like
+interface for a target peripheral to read from memory.
+
+\subsection{Motivation}
+
+Since many devices require memory read access in a linear pattern, it only
+made sense to support such access pattern in a simple way.
+
+\subsection{Conceptual Overview}
+
+After providing a start address, length, and a trigger command through the
+SPAM bus (see section \ref{sec:spam}), data\_ready will be asserted high and
+the master will be able to get the next 8 bytes of data one cycle after
+request is asserted high as long as the FIFO (queue) is not empty (no
+underflow).  Once the DMA is done reading through the entire length, it may
+be triggered again to read from a new start address and different length.
+
+\subsection{Design Overview}
+
+\subsubsection{Portlist}
+
+Simple DMA Read Controller has the following ports that the master should
+not directly interact with:
+
+\begin{itemize}
+\item{the default FSAB portlist (prefixed by dmac\_\_ for outbound)}
+\item{SPAM portlist (prefixed by dmac\_\_)}
+\end{itemize}
+
+For the master, it has the following ports:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input request; 
+input target_clk; /* clk that the master is running in */
+input target_rst_b;
+output [63:0] data; /* 8 bytes of new data */
+output data_ready;
+output fifo_empty; 
+/* asserted when the fifo is empty. This may be the case when there is an
+ * underflow or when the DMA didn't start reading */
+\end{lstlisting}
+
+\subsubsection{Parameters}
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+parameter FIFO_DEPTH = 128; /* must be a power of 2 */
+parameter FIFO_HI = clog2(FIFO_DEPTH) - 2;
+parameter FSAB_DID = 4'hF;
+parameter FSAB_SUBDID = 4'hF;
+parameter SPAM_DID = 4'hx;
+parameter SPAM_ADDRPFX = 24'h000000;
+parameter SPAM_ADDRMASK = 24'hFFFFE0;
+parameter DEFAULT_ADDR = 31'h00000000;
+parameter DEFAULT_LEN = 31'h00000000;
+\end{lstlisting}
+
+The parameters are defined as follows:
+
+\begin{itemize}
+\item{\textbf{FIFO\_DEPTH}: Depth of the internal FIFO. DMA Controller will
+try to keep this FIFO as full as possible. This value must be a power of 2
+and 8 or greater to be functional.}
+\item{\textbf{FIFO\_HI}: Highest bit needed to represent FIFO\_DEPTH space.
+(log${}_2$(FIFO\_DEPTH) - 2) if FIFO\_DEPTH is power of 2.}
+\item{\textbf{FSAB\_DID}: FSAB device id of the master. (if the master
+doesn't have one, give the master one by setting it in
+\texttt{rtl/fsab/fsab\_defines.vh})}
+\item{\textbf{FSAB\_SUBDID}: FSAB sub device id of the master. (if the
+master doesn't have one, give the master one by setting it in
+\texttt{rtl/fsab/fsab\_defines.vh})}
+\item{\textbf{SPAM\_DID}: SPAM device id of the master. (if the master
+doesn't have one, give the master one by setting it in
+\texttt{rtl/spam/spam\_defines.vh})}
+
+\item{\textbf{SPAM\_ADDRPFX} and \textbf{SPAM\_ADDRMASK}: To write/read from
+the SPAM bus, it must be the case that \texttt{((spamo\_addr \& SPAM\_ADDRMASK) ==
+SPAM\_ADDRPFX)}.  (Note: Always set the last 5 bits of the SPAM\_ADDRMASK to
+0.)}
+
+\item{\textbf{DEFAULT\_ADDR}: Default starting address for the DMA.}
+
+\item{\textbf{DEFAULT\_LEN}: Default length that the DMA will read. The DMA will
+provide values starting from address up to the length.}
+
+\end{itemize}
+
+\subsubsection{Config Registers (SPAM)}
+
+The following values come from \texttt{rtl/fsab/dma\_config\_defines.vh};
+these addresses correspond to the last 5 bits that the spamo\_addr needs to
+be set to refer to these registers.
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+parameter NEXT_START_REG_ADDR = 5'h000;
+parameter NEXT_LEN_REG_ADDR = 5'h004;
+parameter COMMAND_REG_ADDR = 5'h008;
+parameter FIFO_BYTES_READ_REG_ADDR = 5'h00c;
+parameter TOTAL_BYTES_DELIVERED_REG_ADDR = 5'h010;
+parameter CURR_START_REG_ADDR = 5'h014; 
+
+parameter DMA_STOP = 2'b00;
+parameter DMA_TRIGGER_ONCE = 2'b01;
+parameter DMA_AUTOTRIGGER = 2'b10;
+\end{lstlisting}
+
+The registers are defined as follows:
+
+\begin{itemize}
+\item{\textbf{NEXT\_START\_REG (write only)}: sets the starting address of
+the DMA for the \textbf{next time} it is triggered.}
+
+\item{\textbf{NEXT\_LEN\_REG (write only)}: sets the length that the DMA has
+to read for the \textbf{next time} it is triggered.}
+
+\item{\textbf{COMMAND\_REG (write only)}: sets the next command for the DMA
+engine to execute, from one of:}
+\begin{itemize}
+\item{\textbf{DMA\_STOP}: DMA does not trigger again.}
+\item{\textbf{DMA\_TRIGGER\_ONCE}: Triggers the DMA once.}
+\item{\textbf{DMA\_AUTOTRIGGER}: Everytime, the DMA is done reading, it is
+triggered again.}
+\end{itemize}
+
+\item{\textbf{FIFO\_BYTES\_READ\_REG (read only)}: the number of bytes that
+the \textit{internal FIFO} has read so far since it was last triggered.}
+
+\item{\textbf{TOTAL\_BYTES\_DELIVERED\_REG (read only)}: the total number of
+bytes that was delivered to the master since the \textit{last reset}. (note:
+it is not ``last triggered'')}
+
+\item{\textbf{CURR\_START\_REG (read only)}: the address that the DMA
+started reading from. (It provides the value of NEXT\_START\_REG before it was
+triggered)}
+
+\end{itemize}
+
+\subsubsection{Implementation}
+
+The internal queue for DMA is represented in the following way:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+reg [FSAB_DATA_HI:0] fifo [(FIFO_DEPTH-1):0];
+ 
+/* Clock domain: fsabi_clk */
+reg [FIFO_HI:0] fifo_wpos;
+ 
+/* Clock domain: target_clk */
+reg [FIFO_HI+1:0] curr_fifo_length;
+reg [FIFO_HI:0] fifo_rpos;
+\end{lstlisting}
+
+While the DMA is triggered, it attempts to obtain data in 64 byte blocks
+using FSAB as long as there is space in the queue for it. When the request
+for 64 byte block is sent, these data will come 8 bytes at a time. Whenever,
+a value arrives, the value is stored in the fifo but \textbf{only} fifo\_wpos changes
+values. Once all 64 bytes arrive, a completion message gets synchronized
+from fsabi\_clk domain to target\_clk domain so that curr\_fifo\_length can be
+updated. fifo\_rpos is used to read values from the fifo to provide data to
+the master.
+
+\subsection{Users}
+
+The Simple DMA Read Controller is used by:
+
+\begin{itemize}
+\item{Framebuffer (see section \ref{sec:framebuffer})}
+\item{Audio (see section \ref{sec:audio})}
+\end{itemize}
+
+\section{Framebuffer}
+\label{sec:framebuffer}
+
+The framebuffer provides pixeldata to the DVI to be displayed on the screen.
+
+\subsection{Conceptual Overview}
+
+Framebuffer uses the Simple DMA Read Controller (see section \ref{sec:dmac})
+to obtain pixel data to be displayed and uses SyncGen to figure out whether
+the value needs to be sent for display.
+
+Notes:
+
+\begin{itemize}
+\item{Four bytes contain data for one pixel.}
+\item{Each primary color uses one byte (RGB) and occupies the first 3
+bytes.}
+\item{The last byte is thrown away.}
+\item{(Be aware of little endianness while programming...)}
+\end{itemize}
+
+\subsection{Framebuffer DMA configuration}
+
+These can be accessed through 0x820000$<$Register Addr$>$
+
+Some relevant addresses for the framebuffer are:
+
+\begin{itemize}
+\item{\textbf{0x82000000 (write only)}: Framebuffer DMA start address (for setting buffer
+locations)}
+\item{\textbf{0x82000004}: Framebuffer length}
+\item{\textbf{0x82000014 (read only)}: Start address of the buffer currently being read by
+the DMA (needed for triple buffering).}
+\end{itemize}
+
+\subsection{Example Usage}
+
+The Framebuffer is used by the multibuf library (see section
+\ref{sec:multibuf}).
 
 
 
