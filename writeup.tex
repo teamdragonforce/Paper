@@ -335,7 +335,7 @@ zero; this allows the bus to simply OR together all responses.
 Since the SPAM bus is always on the core's clock domain, some synchronization 
 may be needed for CSRs on a different clock domain. Standard modules have been 
 provided to synchronize reads and writes; for more information on those, see 
-the documentation for the CSRAsync modules. 
+the documentation for the CSRAsync modules in section \ref{sec:csrasync}. 
 
 \section{Core Microarchitecture}
 
@@ -593,6 +593,128 @@ the requested data).}
 don't think we discard the rest of the data the MIG returns in its burst.}
 \end{itemize}
 
+\section{Synchronization Mechanisms}
+
+\label{sec:sync}
+
+Within virtexsquared, there are two ``utility'' modules that are commonly
+used for synchronizing across clock domain boundaries -- the CSR
+synchronizers, and the async FIFO.
+
+\subsection{CSR Synchronizers}
+
+\label{sec:csrasync}
+
+\subsubsection{Motivation and Design Overview}
+
+Since the virtexsquared system has many peripherals on different clock
+domains, it only makes sense to have a unified mechanism of synchronizing
+SPAM accesses between those domains and the core. Synchronization logic is
+not only difficult to write, but it is also difficult to verify the
+correctness of; to that end, by encapsulating the synchronization mechanisms
+as much as possible, we stand a much better chance of writing correct code.
+The Configuration Space Register (CSR) synchronizers are one of two primary
+mechanisms for synchronization; for the other, see the AsyncFifo
+implementation in section \ref{sec:fifo}.
+
+It was decided early on that CSRAsyncRead and CSRAsyncWrite should be two
+different modules, and that there should be no CSRAsyncReadWrite module.
+Since the registers that the CSR interfaces mirror are usually primarily
+controlled by the peripheral's internal logic, holding register state inside
+a ReadWrite module would result in vastly unnecessary complexity, and would
+substantially obscure the intent of the logic in the peripheral. (Indeed,
+often the resulting state of the register after a write operation is not the
+same as the data that was written.)
+
+The CSRAsyncRead and CSRAsyncWrite modules are designed to closely mirror
+the SPAM bus protocol; for many uses, the CPU side (on the cclk domain) can
+be directly or'ed in on the SPAM bus to implement a peripheral's CSR space.
+The target side (on the tclk domain) was designed to produce single cycle
+strobes that can be effectively used by a target's internal logic to trigger
+updates.
+
+\subsubsection{Interface}
+
+The CSRAsyncRead and CSRAsyncWrite modules are parameterized across the
+width of the register that they are synchronizing; the CSRAsyncWrite module
+is also parameterized for its reset value.  Both modules have two clock
+inputs, and their corresponding negated resets -- \texttt{cclk} is the clock
+corresponding to the CPU core that initiates a request, and \texttt{tclk} is
+the clock corresponding to the target peripheral.  All ports are suffixed
+with the clock domain on which they live (i.e., \texttt{rst\_b\_cclk} and
+\texttt{rst\_b\_tclk}).
+
+Both modules have the same core port structure for synchronizing between the
+two domains; the only difference in their portlist is in direction on the
+data port. The portlist for the read module is as such:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input                rd_strobe_cclk;
+output [(WIDTH-1):0] rd_data_cclk;
+output               rd_wait_cclk;
+output               rd_done_strobe_cclk;
+ 
+output               rd_strobe_tclk;
+input  [(WIDTH-1):0] rd_data_tclk;
+\end{lstlisting}
+
+This provides for a relatively straightforward mechanism for interfacing
+with the SPAM bus. For example, the following code for reading a counter was
+taken from the blit accelerator:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+wire [30:0] rd_data_WRDONE;
+wire rd_done_strobe_WRDONE;
+ 
+CSRAsyncRead #(.WIDTH(31))
+  CSR_WRDONE_READ(/* NOT AUTOINST */
+        // Outputs
+        .rd_data_cclk      (rd_data_WRDONE),
+        .rd_wait_cclk      (),
+        .rd_done_strobe_cclk(rd_done_strobe_WRDONE),
+        .rd_strobe_tclk    (),
+        // Inputs
+        .cclk              (cclk),
+        .tclk              (fsabi_clk),
+        .rst_b_cclk        (cclk_rst_b),
+        .rst_b_tclk        (fsabi_rst_b),
+        .rd_strobe_cclk    (rd_decode &&
+                            (spamo_addr[4:0] == 5'b10100)),
+        .rd_data_tclk      (wrdone[30:0]));
+ 
+assign accel_blit__spami_busy_b =
+  /* ... */ | rd_done_strobe_WRDONE;
+assign accel_blit__spami_data =
+  {32{rd_done_strobe_WRDONE}} & {1'b0, rd_data_WRDONE};
+\end{lstlisting}
+
+The instantiation mechanism is somewhat bulky, but it is certainly better
+than reimplementing the synchronizer each time! Future work may be possible
+to extend verilog-mode to be able to automatically instantiate CSR
+synchronizers.
+
+\subsubsection{Implementation}
+
+The synchronizers are based around sound two-flop principles for
+synchronizing between clock domains. In order to transmit a value between
+the two clock domains, the ``hold-and-sample'' technique is used; once a
+flag is seen indicating that new data is ready to be transferred, the
+synchronizers wait a cycle before sampling the data and transmitting it to
+the recipient clock domain. Building on this principle, the synchronizers
+can be trivially implemented with a small amount of internal state to
+generate strobes and output data.
+
+All internal signals are named according to the clock domain on which they
+live; signals named \texttt{...\_tclk} are on the target clock, and signals
+named \texttt{...\_cclk} are on the core clock.  To synchronize a signal,
+the progression of naming \texttt{foosig\_cclk}, \texttt{foosig\_cclk\_s1},
+and \texttt{foosig\_cclk\_tclk} is used to represent the signal after no
+flops, one flop, and two flops, respectively.
+
+\subsection{Asynchronous FIFO}
+
+\label{sec:fifo}
+
 \section{Simple DMA Read Controller}
 \label{sec:dmac}
 
@@ -805,7 +927,50 @@ the DMA (needed for triple buffering).}
 The Framebuffer is used by the multibuf library (see section
 \ref{sec:multibuf}).
 
+\section{Audio}
 
+\label{sec:audio}
+
+The audio module streams sample frames to the AC'97 codec to generate sound.
+
+\subsection{Motivation}
+
+Our application required an audio and we only needed to make simple
+modifications to the SimpleDMAReadController (see section \ref{sec:dmac})
+for it to be usable for producing audio from a range of address.  We also
+had ACLink and AC97Conf that are from our 2nd lab.
+
+\subsection{Implementation}
+
+Audio module contains few improvements from our AC97 base code:
+
+\begin{itemize}
+\item{AudioGen is replaced with DMA to fetch audio data from DRAM}
+\item{Some additional logic has been added because DMA provides data in
+chunks of 8 bytes.}
+\item{AC97 configuration can be controlled through the SPAM bus.}
+\end{itemize}
+
+\subsection{Audio Configuration Registers}
+
+We have chosen these addresses to not conflict with the DMA configuration
+registers.  The registers are:
+
+\begin{itemize}
+\item{\textbf{0x84000100 (write only)}: Master Volume}
+\item{\textbf{0x84000104 (write only)}: Microphone Volume}
+\item{\textbf{0x84000108 (write only)}: Line In Volume}
+\item{\textbf{0x8400010C (write only)}: Audio CD Volume}
+\item{\textbf{0x84000110 (write only)}: Audio PCM Volume}
+\item{\textbf{0x84000114 (write only)}: Audio Recording Select}
+\item{\textbf{0x84000118 (write only)}: Audio Recording Gain}
+\end{itemize}
+
+\subsection{To do}
+
+\begin{itemize}
+\item{Need a way to stop/pause a playing audio.}
+\end{itemize}
 
 \section{Peripheral Architecture}
 
