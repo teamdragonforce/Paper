@@ -1095,11 +1095,96 @@ registers.  The registers are:
 \item{Need a way to stop/pause a playing audio.}
 \end{itemize}
 
+\section{PS2}
+\label{sec:ps2}
+
+The PS2 module obtains PS2 keyboard scancode data and stores each value into
+a fifo such that the value could be obtained one at a time through the SPAM
+bus.
+
+\subsection{Portlist}
+
+The PS2 module includes the SPAM portlist (see section \ref{sec:spam}),
+prefixed by ps2\_\_ on all outbound.
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input ps2clk;
+input ps2data;
+\end{lstlisting}
+
+The PS2 module complies with the timings listed in the
+\href{http://www.digilentinc.com/Data/Products/NEXYS2/Nexys2_rm.pdf}{Nexys 2
+reference manual} on page 8.
+
+\subsection{Implementation Details}
+
+Since the data arrives asynchronously (it is a keyboard input afterall),
+ps2clk must first be latched with 2 flip flops to get a stable value.
+
+Then, one would wish to obtain each data by checking the value at the
+negative edge. Unfortunately, ps2clk is not a real clock so the method
+doesn't work. Instead, the value of ps2clk is checked every positive edge of
+the core clock(cclk) and detects the falling edge of ps2clk. This is a valid
+method only because the core clock is much faster than the ps2clk.
+
+Once all 11 bits (\{start\_bit, scancode\_data[7:0], odd\_parity\_bit,
+stop\_bit\}) are received and odd parity check matches, scancode data is
+stored in the queue.
+
+When a request for scancode data is made through the spam bus, if the fifo
+is empty, 0xFFFFFFFF is returned. Otherwise, a value is dequeued from the
+fifo and returns \{24'h0, scancode\_data\}.
+
+\subsection{Usage}
+
+For an example of usage, see the keyhelp library in section
+\ref{sec:keyhelp}.
+
+\subsection{To Do}
+
+\begin{itemize}
+\item{Sending data to the keyboard to have Num Lock, Caps Lock, and Scroll
+Lock lights flashing when appropriate. (Or change the scancode set of the
+keyboard if we want to use 15-410 version of process\_scancode instead)}
+\item{The keyboard should still work after being unplugged and replugged
+many times.}
+\end{itemize}
 
 
-\section{Peripheral Architecture}
+\section{Timer}
 
-is another section to be filled in.
+\label{sec:timer}
+
+The timer module provides the number of clock cycles since reset through the
+SPAM bus (see section \ref{sec:spam}).
+
+\subsection{Motivation}
+
+As we started writing the game and painted arrows on the screen, we quickly
+realized that performance may become an issue. Whenever we made a change to
+RTL or our code, we needed a way to measure performance. The number of clock
+cycles since reset seemed to be the easiest way to measure this.
+
+\subsection{Portlist}
+
+The Timer module includes the SPAM portlist (see section \ref{sec:spam}),
+prefixed by timer\_\_ on all outbound.
+
+\subsection{Usage Example}
+\begin{lstlisting}[basicstyle=\footnotesize,language=C]
+#include <minilib.h>
+int *timer = 0x86000000;
+printf("Cycles: %d\r\n", *timer);
+\end{lstlisting}
+
+\subsection{To Do}
+
+\begin{itemize}
+\item{Have a real timer that returns real time in ms since reset instead of
+core clock cycles}
+\item{Clock cycle counter overflows too often (approximately every 30
+seconds)}
+\end{itemize}
 
 \part{Software Design}
 
