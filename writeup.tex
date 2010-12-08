@@ -1818,13 +1818,103 @@ including miscellaneous sections required for completion of this report.
 
 \section{Schedule}
 
-Gantt chart is figure 3.  We are behind it.  I ran out of time to write
-this because I spent all night debugging.
+The Gantt chart generated at the mid-semester report can be seen in figure
+\ref{fig:gantt}.  We anticipated being further behind that schedule, but we
+came in fairly closely.  That schedule, notably, is completely disjoint from
+the original schedule; as our team shifted over time, the original schedule
+was slipped and abandoned.
 
 \begin{figure}
   \centering
     \includegraphics[width=\textwidth]{gantt-chart.png}
-  \caption{I hate Xilinx.} \label{fig:gantt}
+  \caption{Mid-semester estimation of schedule.} \label{fig:gantt}
 \end{figure}
+
+\section{Individual Team Member Notes}
+
+Pursuant to the requirements of this report, each team member has written a
+section on their notes from the class.
+
+\subsection{Joshua Wise}
+
+I came into this class at the beginning with one specific goal in mind --
+come Hell or high water, I came here to really figure out what it would take
+to build a System on a Chip on an FPGA.  Since I learned of the concept of
+programmable logic, I dreamed of building a system that was all my own --
+every line of code running on it was hand-crafted with care by me (and a few
+friends).  So, when I registered for the class, I made this my goal; I would
+do what it would take, but this seemed like a prime opportunity to learn as
+I would, and learn as I went.
+
+In this regard, I feel as though the course was a success.  On December 3rd,
+2010, I walked into HH 1112 with my group members, and got a chance to show
+off this system that we had built from the ground up.  All of the C source
+on the system was ours; all the assembly was ours; all the RTL was ours; and
+to an extent, we even got an opportunity to modify the direct primitives on
+the device in debug sessions with FPGA Editor.  There is still plenty more
+to do on this project; next semester, the system will be extended to allow
+for student 18-447 MIPS cores to be dropped in, and over time, I intend to
+build an MMU that will allow me to boot Linux.  Given the time frame that we
+had, and the constraints that we faced -- maybe even without taking those
+into regard! -- I feel suffused with pride in this accomplishment.
+
+To date, this is the largest project that I have designed from the ground up
+on an FPGA.  Our code base spans over 10,000 lines of Verilog (\textit{not}
+including the MIG), and nearly 5,000 lines of C; we designed all the
+automation for the project, and when we needed something, \textit{we built
+it}.  Throughout the course of this, I feel as though all of us have learned
+and relearned the value of adhering to a code development methodology; by
+sticking to best practices of testing and architecture, we built a
+remarkable amount of code that worked right on nearly the first try.
+
+We also rediscovered the relative difficulty of designing RTL with respect
+to designing software.  All three of us are accustomed to being able to
+write software, designing on the fly, producing a good-quality program in no
+time at all; but designing hardware is much more difficult.  I feel as
+though we all learned to put our egos aside in development; there may be
+less pride in asking for help, but to be sure, there is no pride at all in
+code that does not work!  Ultimately, I found over and over again that the
+only way to design hardware is to spend a lot of time thinking before I even
+touch a keyboard; when doing the first pass of the arbiter, I spent about a
+week thinking before I wrote RTL.
+
+What of the class, though?  I felt as though I poured an immense amount of
+time and effort into the class, and that that effort went mostly
+unappreciated by course staff.  This is a strange feeling for me, as I
+usually do not find myself seeking affirmation from the staff of classes I
+take.  But in this class, I felt as though I was being actively dismissed by
+the course staff; early on in the project, I wrote status reports with
+questions, looking for feedback on the direction we were headed.  During the
+presentations, I left opportunities open there, too, for feedback and
+commentary on our design.  It seems that the feedback never came; it felt as
+if the course staff simply did not care to comment on our project. 
+Ultimately, the low point of this came when course staff attended our demo
+session for what felt like a sum total of 20 minutes; although most of the
+members of the class had been in the lab for the previous 48 hours, it
+seemed as if course staff was just not interested in the results that we had
+produced.
+
+Without regard to the attitudes of the course staff, I still take pride in
+the work that I've produced.  I feel as though it took somewhat longer than
+it should have to establish a working group dynamic, but once we did so, we
+worked as effectively together as any team I have worked with before; when
+things needed to happen, they did.  The fact that the three of us were
+approximately on par with each other in terms of familiarity with
+project-critical features such as version control, scripting, and good
+coding practices made our time together that much more enjoyable.
+
+That brings me to a note on which I may wish to end -- advice for future
+groups.  Ultimately, what made our group successful is that we embraced our
+working environment, instead of holding it at arm's length.  In order to be
+successful, we knew that we would have to adopt best practices, and so we
+chose a style guide from the first day; we picked a version control system
+on day 1, and we set up our computers with an environment that we were
+familiar with on day 1.  In order to succeed in this class, you must be
+prepared to take advantage of the full power of the tools in front of you;
+the RTL is only a place to start.
+
+\textbf{Go forth and build.}
+
+\hfill\textit{Joshua Wise, December 8th, 2010}
 
 \end{document}
