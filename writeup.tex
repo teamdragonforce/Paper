@@ -711,9 +711,132 @@ the progression of naming \texttt{foosig\_cclk}, \texttt{foosig\_cclk\_s1},
 and \texttt{foosig\_cclk\_tclk} is used to represent the signal after no
 flops, one flop, and two flops, respectively.
 
+\subsection{Synchronous FIFO}
+
+\label{sec:syncfifo}
+
+Although the synchronous FIFO is not strictly a clock synchronization
+mechanism, it is presented in this section as a means to understanding the
+asynchronous FIFO, and since it is a fundamental building block of the
+system.
+
+\subsubsection{Motivation}
+
+There are a number of reasons to have a packaged-up FIFO utility. One is
+cleanliness and readability of code; an instantiation of a FIFO module is
+immediately apparent to a reader, while an implementation mixed in with
+other code is less so. Another reason for the Fifo module is the reduction
+of opportunities for bugs; every implementations of FIFOs scattered through
+the RTL is another opportunity for a mistake to appear, costing valuable
+debug time (around 20 minutes per synthesis run).
+
+\subsubsection{Implementation}
+
+The Fifo module is implemented as a block RAM with read and write pointers.
+Both pointers are initialize to zero; after a read or write, the appropriate
+pointer increments. If the pointers are equal, the FIFO is empty. (Each
+pointer is one bit wider than required to index into the RAM so that a full
+FIFO does not appear identical to an empty FIFO.)
+
+\subsubsection{Implementation: Parameters}
+
+\begin{itemize}
+\item{\textbf{DEPTH}: how many entries the FIFO can store}
+\item{\textbf{WIDTH}: how many bits each entry has, and the width of the input and
+output data ports}
+\item{\textbf{ALMOST}: how few entries away from full or empty the FIFO must be to be
+considered almost full or almost empty}
+\end{itemize}
+
+\subsubsection{Implementation: Portlist}
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input clk;
+input rst_b;
+ 
+input wr_en;
+input rd_en;
+input [WIDTH-1:0] wr_dat;
+ 
+output [WIDTH-1:0] rd_dat;
+output empty;
+output full;
+output [`ADDR_WIDTH:0] available;
+output afull;
+output aempty;
+\end{lstlisting}
+
+At a positive clock edge, when wr\_en is high, the data at wr\_dat is stored
+in the FIFO, and when rd\_en is high, the next entry in the FIFO is presented
+at rd\_dat.
+
+Interesting outputs:
+\begin{itemize}
+\item{\textbf{empty}: is high when the FIFO is empty}
+\item{\textbf{full}: is high when the FIFO is full}
+\item{\textbf{afull}: is high when there are ALMOST or fewer empty spaces left in the
+FIFO. \footnote{\Huge{\textbf{I'M ALMOST FULL!!!}}} }
+\item{\textbf{aempty}: is high when there are ALMOST or fewer entries in the FIFO}
+\item{\textbf{available}: the number of entries in the FIFO; the width of this port is
+log${}_2$ DEPTH + 1}
+\end{itemize}
+
 \subsection{Asynchronous FIFO}
 
 \label{sec:fifo}
+
+\subsubsection{Motivation}
+
+As with a simple FIFO, there are a number of motivations for a packaged
+cross-clock-domain FIFO utility: code reuse, clarity, and reduction of bugs.
+This last motivation carries significant additional weight for a
+cross-clock-domain FIFO: hardware crossing multiple clock domains is tricky,
+so the less of it that needs to be written, the better.
+
+\subsubsection{Implementation}
+
+The core fifo implementation is similar to that to that of the Fifo module
+(see section \label{sec:syncfifo}): a block RAM with read and write
+pointers.  Reads from and writes to the block RAM occur on the different
+clock domains.  To accommodate empty and full outputs, the pointers must be
+converted into grey code and passed across the clock domain boundary.  The
+empty output is on the read clock domain (so that the module using the FIFO
+can avoid reading when empty), and the full output is on the write clock
+domain (so that the module using the FIFO can avoid writing when full).  To
+accomplish this, both pointers are converted to grey code, passed through a
+register, and passed across the clock domain boundary, and passed through
+two more registers (to avoid metastability).
+
+Because of the delay associated with crossing the clock domain boundary, it
+is possible that the module may incorrectly indicate an empty or full FIFO. 
+However, it will be incorrect in the other direction (with a false
+negative).  This is guaranteed for the empty output because it is the write
+index which is late: there can be \textit{more} data in the FIFO than the
+reader knows about, but since the read index is not delayed, there is never
+\textit{less}.  (Similar reasoning holds for the full output.)
+
+\subsubsection{Implementation: Parameters}
+
+\begin{itemize}
+\item{\textbf{DEPTH}: how many entries the FIFO can store}
+\item{\textbf{WIDTH}: how many bits each entry has, and the width of the input and
+output data ports}
+\end{itemize}
+
+\subsubsection{Implementation: Portlist}
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input iclk;
+input oclk;
+input iclk_rst_b;
+input oclk_rst_b;
+ 
+input wr_en;
+input rd_en;
+input [WIDTH-1:0] wr_dat;
+ 
+output [WIDTH-1:0] rd_dat;
+output empty;
+output full;
+\end{lstlisting}
 
 \section{Simple DMA Read Controller}
 \label{sec:dmac}
@@ -971,6 +1094,8 @@ registers.  The registers are:
 \begin{itemize}
 \item{Need a way to stop/pause a playing audio.}
 \end{itemize}
+
+
 
 \section{Peripheral Architecture}
 
