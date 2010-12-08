@@ -1,15 +1,19 @@
-\documentclass[10pt]{article}
+\documentclass[10pt]{report}
 \usepackage{fullpage}
 \usepackage{times}
 \usepackage{amsmath,proof,amsthm,amssymb,color}
 %\usepackage{multicol}
 \usepackage{float}
 \usepackage{graphicx}
+\usepackage{parskip}
 \floatstyle{boxed} 
 \restylefloat{figure}
 \usepackage{hyperref}
 \usepackage{listings}
 %\usepackage[all]{hypcap}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
 
 
 \title{virtexsquared: ARM-like System-on-Chip on an FPGA}
@@ -36,7 +40,7 @@ submodules within the system.
 
 \vspace{0.1in} % fff fu LaTeX
 
-\section{Introduction}
+\chapter{Introduction}
 
 In fulfillment of the 18-545 Advanced Digital Design Capstone, this group
 designed and implemented a peripheral layer for an ARM-like core. 
@@ -70,7 +74,7 @@ hence usable for students in an introductory computer architecture class.
 The core, in particular, has a moderate \textit{anti}-goal of high
 performance.
 
-\part{Hardware Design}
+\chapter{Hardware Design}
 
 \label{par:hardware}
 
@@ -1356,7 +1360,7 @@ The \texttt{fat16} library is best investigated by example;
 the contents of the root directory, and to open and load the application
 code ELF image.
 
-\part{Software Design}
+\chapter{Software Design}
 
 In this part, we mention salient libraries located in \texttt{sw/lib} that we 
 designed to abstract some of the details of the hardware.
@@ -1467,7 +1471,7 @@ Copies an image of size \textbf{w} by \textbf{h} represented in \textbf{src} to 
 
 This function is implemented by setting the corresponding config registers of AccelBlit (setting read length last) and spin waiting until bliting is complete. By spin waiting, Cache does not eat up memory bandwidth and guarantees that bliting is complete when the function completes. 
 
-\part{Miscellaneous System Notes}
+\chapter{Miscellaneous System Notes}
 
 In this part, we describe other portions of the system that do not easily
 fit as being called either hardware or software, but that still merit
@@ -1720,18 +1724,56 @@ having a maintainable source base.
 
 \subsection{makecdc for ChipScope}
 
+A CDC file contains names for the wires connected to ChipScope integrated
+ILAs so that they do not need to be typed in manually each time.  We create
+CDC files using a custom Lua script.  Wires connected to the ILAs are
+listed, along with width information, in reverse order.  The script then
+generates the CDC design file which is, in turn, imported into ChipScope. 
+Unused wires are given a placeholder label.
+
+The representation for one ILA in the audio module (section
+\ref{sec:audio}):
+
+\begin{lstlisting}[basicstyle=\footnotesize]
+project = {
+        iconname = "mem",
+        { name = "mem/ila0",
+          bus = {
+                "fifo_empty",
+                "data_ready",
+                { name = "data", bot=0, top=63 },
+                "request",
+                "secondhalf",
+                "ac97_out_slot4_valid",
+                { name = "ac97_out_slot4", bot=0, top=19 },
+                "ac97_out_slot3_valid",
+                { name = "ac97_out_slot3", bot=0, top=19 },
+                "ac97_out_slot2_valid",
+                { name = "ac97_out_slot2", bot=0, top=19 },
+                "ac97_out_slot1_valid",
+                { name = "ac97_out_slot1", bot=0, top=19 },
+                "ac97_sdata_in",
+                "ac97_strobe",
+                "ac97_reset_b",
+                "ac97_sync",
+                "ac97_sdata_out",
+                { name = "bullshit", bot=157, top=255 },
+                }
+        },
+\end{lstlisting}
+
 \subsection{j4cbo}
 
 Although he is a tool, j4cbo was not used in the making of this project.
 
-rntz was used in the making of this project..
+rntz was used in the making of this project.
 
 \subsection{git}
 
 We used \texttt{git} for version control. Our repository is browsable at
 \url{https://github.com/teamdragonforce/virtexsquared/}. We like \texttt{git}.
 
-\part{Project Logistics}
+\chapter{Project Logistics}
 
 In this part, we describe the logistics of the completion of this project,
 including miscellaneous sections required for completion of this report.
@@ -1741,10 +1783,10 @@ including miscellaneous sections required for completion of this report.
 Gantt chart is figure 3.  We are behind it.  I ran out of time to write
 this because I spent all night debugging.
 
-\begin{figure*}
+\begin{figure}
   \centering
     \includegraphics[width=\textwidth]{gantt-chart.png}
   \caption{I hate Xilinx.} \label{fig:gantt}
-\end{figure*}
+\end{figure}
 
 \end{document}
