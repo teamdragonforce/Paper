@@ -533,6 +533,7 @@ screen-clear accelerator takes bandwidth \textit{last}, because it would otherwi
 starve the rest of the system for bandwidth.
 
 \section{Memory Controller}
+\label{sec:memorycontroller}
 
 In the virtexsquared memory system (see section \ref{sec:memory}), the
 memory controller is the sole client on the FSAB.  The memory controller
@@ -1472,6 +1473,7 @@ Copies an image of size \textbf{w} by \textbf{h} represented in \textbf{src} to 
 This function is implemented by setting the corresponding config registers of AccelBlit (setting read length last) and spin waiting until bliting is complete. By spin waiting, Cache does not eat up memory bandwidth and guarantees that bliting is complete when the function completes. 
 
 \section{Audio Library}
+\label{sec:libaudio}
 
 Contains various audio helper functions that are implemented with the help of audio module.
 
@@ -1916,6 +1918,43 @@ the RTL is only a place to start.
 \textbf{Go forth and build.}
 
 \hfill\textit{Joshua Wise, December 8th, 2010}
+
+\subsection{Josiah Boning}
+\label{sec:josiah}
+
+\subsubsection{Things I Liked}
+
+I thoroughly enjoyed our project. I especially liked  the ability to choose 
+a project and execute it, the freedom to set up our development environment 
+as we like, and the availability of good hardware (development machines and 
+FPGA board). I think I learned a lot about designing a large hardware system,
+writing RTL (both functionality and style), using \texttt{git}, and how much 
+Xilinx sucks. 
+One thing to note is that much of the learning I did was either on my own, 
+by reading and writing code and solving problems, or from Joshua (section 
+\ref{sec:joshua}), who has significant experience doing RTL development and 
+is familiar with many quirks of the Xilinx toolchain and other miscellanea. 
+His knowldedge of Xilinx, \texttt{git} tricks, and verilog-mode verilator, 
+and verilog-mode were invaluable to the project, and I consider the things I 
+have learned from his experience to be some of the more significant lessons 
+I am taking from this class---so much so that I feel bad for the other groups 
+who lack such a verteran RTL developer, as even the TAs did not seem to have 
+the same ability to answer obscure questions about Xilinx.\footnote{``It can't 
+connect to the USB thing to download the bitfile'' ``Oh, run [obscure xilinx 
+command]'' ``...oh.''}
+
+\subsubsection{Things I Didn't Like}
+
+One of the least pleasant things about this class has been the total lack of 
+feedback on submitted items. Progress reports, reading summaries, mid-project 
+writeup: did anyone read them? Does anyone care? It was impossible to tell. I 
+ceased submitting progress reports a month and a half into the semester because 
+it truly felt like they were being sent to the void---and I'd rather be working 
+on the project than sending things to the void).
+
+\subsubsection{Things I Did}
+
+I worked on our project.
 
 \subsection{Bradley Yoo}
 
