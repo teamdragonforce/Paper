@@ -1,4 +1,4 @@
-\documentclass[10pt,twocolumn]{article}
+\documentclass[10pt]{article}
 \usepackage{fullpage}
 \usepackage{times}
 \usepackage{amsmath,proof,amsthm,amssymb,color}
@@ -93,8 +93,11 @@ over the FSAB.
 
 \begin{figure}
   \centering
-    \includegraphics[width=0.49\textwidth]{block_diagram.pdf}
-  \caption{High-level system diagram.} \label{system_diagram}
+    \includegraphics[width=.8\textwidth]{block_diagram.pdf}
+  \caption{High-level system diagram. A red square in the corner of a module
+           indicates a module where a chipscope ILA is present and can easily
+           be enabled.}
+  \label{system_diagram}
 \end{figure}
 
 \subsection{Fast System Access Bus}
