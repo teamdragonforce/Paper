@@ -1186,6 +1186,106 @@ core clock cycles}
 seconds)}
 \end{itemize}
 
+\section{Hardware Blit/Clear Accelerators}
+\label{sec:accel}
+
+\subsection{Clear Accelerator}
+
+\subsubsection{Motivation}
+
+Whenever we got a new buffer (see the section on multibuf, section
+\ref{sec:multibuf}) to start drawing, we always had to clear the screen and
+draw things on top of the cleared screen.  This meant that we had to
+effectively draw the screen twice.  We figured that clearing the screen in
+hardware is relatively easy and give big performance boost.  This also has
+many uses because it is effectively a memset accelerator assuming that start
+address is 64-byte aligned and length is 8-byte aligned.
+
+\subsubsection{Implementation}
+
+Implementation is similar to the Simple DMA Read Controller without the
+queue. Every time the clear accelerator gets control of the FSAB bus, it
+writes up to 64 bytes.
+
+\subsubsection{Implementation: Portlist}
+
+The clear accelerator's port list consists simply of the SPAM portlist
+(prefixed by accel\_ for the outbound), and the FSAB portlist (prefixed by
+accel\_ for the outbound).
+
+\subsubsection{Implementation: Configuration Space Registers}
+
+\begin{itemize}
+\item{\textbf{4'b0000 (write only)}: 4 byte data that every value inside
+[start\_address, start\_address+num\_packets*8) need to be set to.  Must be
+64-byte aligned.}
+\item{\textbf{4'b0100 (write only)}: start address (start\_address)}
+\item{\textbf{4'b1000 (read/write)}: number of FSAB packets (num\_packets) - each fsab
+packet is 8 bytes since FSAB\_DATA\_HI = 63 (64 bit transaction at a time)}
+\end{itemize}
+
+AccelClear begins clearing when the number of FSAB packets is set to a value
+greater than 0.
+
+\subsubsection{Usage}
+
+See the section on the accel library, section \ref{sec:accellib}.
+
+\subsection{Blit Accelerator}
+
+\subsubsection{Motivation}
+
+When we realized that our application is not drawing fast enough ($\le$ 30
+frames per second) even after clear accelerator and triple buffering, we
+realized that we needed to make another improvement.
+
+We had two options:
+\begin{itemize}
+\item{Rewrite the blitter we had in software in assembly. We believed that
+this would give us a performance boost because the assembly code that the
+compiler gave just didn't seem very good.}
+\item{Write a \texttt{bitblt} (``blit'') accelerator in hardware.}
+\end{itemize}
+
+We went with the blit accelerator in hardware because we were confident that
+a blit accelerator would give a big performance boost.
+
+\subsubsection{Implementation}
+
+There are 3 stages:
+\begin{enumerate}
+\item{Read 64 bytes from current read address and increment the current read
+address by 64.}
+\item{Write those 64 bytes to the current write address.}
+\item{Increment write address by 64 if a row hasn't been completed or make
+it point to the next row.}
+\end{enumerate}
+
+\subsubsection{Implementation: Portlist}
+
+The blit accelerator's port list consists simply of the SPAM portlist
+(prefixed by accel\_ for the outbound), and the FSAB portlist (prefixed by
+accel\_ for the outbound).
+
+\subsubsection{Implementation: Configuration Space Registers}
+
+\begin{itemize}
+\item{\textbf{5'b00000 (write only)}: read start address (must be 64-byte
+aligned)}
+\item{\textbf{5'b00100 (write only)}: read length (in 64-byte packets)}
+\item{\textbf{5'b01000 (write only)}: write start address}
+\item{\textbf{5'b01100 (write only)}: write row length (in 64-byte packets)}
+\item{\textbf{5'b10000 (write only)}: write row stride (in bytes)}
+\item{\textbf{5'b10100 (read/write)}: = 64-byte packets written}
+\end{itemize}
+
+The blit accelerator begins blitting when read length is set to a value greater
+than 0.
+
+\subsubsection{Usage}
+
+See the section on the accel library, section \ref{sec:accellib}.
+
 \part{Software Design}
 
 In this part, we mention salient libraries that we designed to abstract some
