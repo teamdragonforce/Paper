@@ -251,7 +251,7 @@ The following are known implementations of the FSAB specification:
 \begin{figure}
   \centering
     \includegraphics[width=0.85\textwidth]{FSAB-IxFIF.pdf}
-  \caption{Clocking for memory controller.} \label{mshim_clock}
+  \caption{Clocking for memory controller.} \label{fsabixfif}
 \end{figure}
 
 
@@ -795,7 +795,7 @@ so the less of it that needs to be written, the better.
 \subsubsection{Implementation}
 
 The core fifo implementation is similar to that to that of the Fifo module
-(see section \label{sec:syncfifo}): a block RAM with read and write
+(see section \ref{sec:syncfifo}): a block RAM with read and write
 pointers.  Reads from and writes to the block RAM occur on the different
 clock domains.  To accommodate empty and full outputs, the pointers must be
 converted into grey code and passed across the clock domain boundary.  The
@@ -1229,7 +1229,7 @@ greater than 0.
 
 \subsubsection{Usage}
 
-See the section on the accel library, section \ref{sec:accellib}.
+See the section on the accel library, section \ref{sec:accel_lib}.
 
 \subsection{Blit Accelerator}
 
@@ -1284,7 +1284,77 @@ than 0.
 
 \subsubsection{Usage}
 
-See the section on the accel library, section \ref{sec:accellib}.
+See the section on the accel library, section \ref{sec:accel_lib}.
+
+\section{SystemACE Interface}
+
+\subsection{Motivation and Design Constraints}
+At some point during the development process, it was decided that using the
+linear StrataFlash, as done on the initial AC'97 demo project, would be
+insufficient; the size of the flash is insufficient to store substantial
+quantities of music, and reprogramming new data onto the flash requires a
+relatively lengthy process over JTAG. It was decided, then, that the
+SystemACE's CompactFlash card interface should be used to load code and data
+into the running system.
+
+The SystemACE provides a very usable microcontroller interface to its
+internal registers; these registers can be used to command the CompactFlash
+card, and interrogate other aspects of the system's state. It was decided
+that the easiest mechanism to gain access to these registers - and hence the
+CompactFlash card - was to add a ``glue'' interface between the MPU pins and
+the SPAM bus. If additional performance was needed later from CompactFlash
+requests, then FSAB DMA could be added; but the first priority was to gain a
+working mechanism to access the CompactFlash, with the simplest hardware
+possible.
+
+\subsection{Interface}
+
+The SystemACE module provides a device on the SPAM bus with DID 4'h3 (i.e.,
+with base address 0x83000000). Registers are linearly mapped into the SPAM
+address space on dword (four-byte) boundaries; that is to say, A$<0>$ on the
+SystemACE is wired to A$<2>$ on the SPAM, and so on up. A complete register
+mapping of the SystemACE interface can be found on Xilinx's site, in
+\href{http://www.xilinx.com/support/documentation/data_sheets/ds080.pdf}{DS080:
+SystemACE CompactFlash Solution}. Since all 16 data pins are connected
+through on the XUPV5, the device can be used in word-wide mode (i.e., with
+0x1 written to address 0x83000000).
+
+\subsection{Implementation}
+
+A very similar synchronization mechanism to that used in the
+CSRAsyncRead/Write blocks (see section \ref{sec:csrasync}) is employed to
+synchronize addresses along with data between the CPU clock and the
+SystemACE clock domain.  However, some changes are noted; for instance,
+since CSRAsyncRead is not reading directly from a register, it must also
+wait for a response to come back from the SystemACE before it acknowledges
+the request (and sends the data back) to the CPU clock domain.  Similarly,
+since the external bus protocol for the SystemACE is not quite as simple as
+a write enable on a register, or a read from a multiplexed register;
+instead, the external bus lines must be driven in a certain order.  This is
+implemented in a state machine with seven states that ensure that setup and
+hold times are all met.
+
+Appropriate tristate gating to the outside world is enforced using a raw
+IOBUF instantiation. One possible alternative coding style for this is to
+use an inout reg that can be set to z; tests determined that although
+somethings Xilinx tools correctly synthesize this, other times the tools
+fail to synthesize this as a tristateable output. Manually invoking the
+IOBUF primitive forces the tools to generate the correct routing for the
+tristate enable.
+
+\subsection{Software}
+
+Software support for the SystemACE controller is provided by the
+\texttt{sysace} and \texttt{fat16} libraries in \texttt{sw/lib}.  The
+primary external interfaces to sysace are \texttt{sysace\_init()} and
+\texttt{sysace\_readsec()}; other functions are intended as internal
+mechanisms exported only because they are named processes in the SystemACE
+user's guide.
+
+The \texttt{fat16} library is best investigated by example;
+\texttt{sw/boot1} provides a good example of using the FAT16 driver to list
+the contents of the root directory, and to open and load the application
+code ELF image.
 
 \part{Software Design}
 
@@ -1299,7 +1369,7 @@ Multibuf library implements \href{http://en.wikipedia.org/wiki/Multiple_bufferin
 
 \subsection{Motivation}
 
-riginally, we had double buffering but performance was an issue. In double buffering, after the framebuffer start address has switched, the code couldn't continue writing to the new buffer because the dma may not have started reading from the new address yet. This caused a notable choppiness of the arrows going up the screen in Stepmania. After measuring the time this took with Timer module (see section \ref{sec:timer}), we decided to implement triple buffering. 
+Originally, we had double buffering but performance was an issue. In double buffering, after the framebuffer start address has switched, the code couldn't continue writing to the new buffer because the dma may not have started reading from the new address yet. This caused a notable choppiness of the arrows going up the screen in Stepmania. After measuring the time this took with Timer module (see section \ref{sec:timer}), we decided to implement triple buffering. 
 
 \subsection{Implementation Details}
 
@@ -1551,7 +1621,7 @@ this because I spent all night debugging.
 \begin{figure*}
   \centering
     \includegraphics[width=\textwidth]{gantt-chart.png}
-  \caption{I hate Xilinx.} \label{mshim_clock}
+  \caption{I hate Xilinx.} \label{fig:gantt}
 \end{figure*}
 
 \end{document}
