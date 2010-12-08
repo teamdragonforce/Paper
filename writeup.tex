@@ -1598,15 +1598,138 @@ particular use are elucidated below.
 
 \subsection{Xilinx XST}
 
+The Xilinx tools are invoked in two major phases: xst and xflow. They both
+suck.
+
 \subsection{verilog-mode}
 
+\href{http://www.veripool.org/wiki/verilog-mode}{verilog-mode} is a tool to
+reduce the tedium and redundancy of writing Verilog.  It is designed as a
+plugin for emacs; however, we use it in batch mode and invoke it using the
+``auto'' target in our Makefile (see section \ref{sec:build}).  Some of the
+more prominently used features of verilog-mode are described below.
+
+\subsubsection{Automatic Portlists}
+
+AUTOARG is used to automatically generate input and output portlists. This
+is particularly helpful when a port width comes from an included file. A
+usage example, from the preloader (section \ref{sec:preloader}):
+
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+module FSABPreload(/*AUTOARG*/
+   // Outputs
+   rst_core_b, pre__fsabo_valid, pre__fsabo_mode, pre__fsabo_did,
+   pre__fsabo_subdid, pre__fsabo_addr, pre__fsabo_len,
+   pre__fsabo_data, pre__fsabo_mask,
+   // Inputs
+   clk, rst_b, pre__fsabo_credit, fsabi_valid, fsabi_did,
+   fsabi_subdid, fsabi_data
+   );
+ 
+        `include "fsab_defines.vh"
+ 
+        input clk;
+        input rst_b;
+        output wire rst_core_b;
+ 
+        /* FSAB interface */
+        output reg                  pre__fsabo_valid = 0;
+        output reg [FSAB_REQ_HI:0]  pre__fsabo_mode = FSAB_WRITE;
+        output reg [FSAB_DID_HI:0]  pre__fsabo_did = {(FSAB_DID_HI+1){1'b1}};
+        output reg [FSAB_DID_HI:0]  pre__fsabo_subdid = {(FSAB_DID_HI+1){1'b0}};
+        output reg [FSAB_ADDR_HI:0] pre__fsabo_addr = 0;
+        output reg [FSAB_LEN_HI:0]  pre__fsabo_len = 8;
+        output reg [FSAB_DATA_HI:0] pre__fsabo_data = 0;
+        output reg [FSAB_MASK_HI:0] pre__fsabo_mask = 8'hFF;
+        input                       pre__fsabo_credit;
+ 
+        input                       fsabi_valid;
+        input      [FSAB_DID_HI:0]  fsabi_did;
+        input      [FSAB_DID_HI:0]  fsabi_subdid;
+        input      [FSAB_DATA_HI:0] fsabi_data;
+\end{lstlisting}
+
+\subsubsection{Automatic Instantiation}
+
+AUTOINST connects a module's ports to wires of the same name. This behavior
+can be modified using the AUTO\_TEMPLATE directive. An example, from the
+framebuffer (section \ref{sec:framebuffer}):
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+        /* SyncGen AUTO_TEMPLATE (
+                .rst_b(~fifo_empty_1a),
+                );
+        */
+        SyncGen sync(/*AUTOINST*/
+                     // Outputs
+                     .vs                (vs),
+                     .hs                (hs),
+                     .x                 (x[11:0]),
+                     .y                 (y[11:0]),
+                     .border            (border),
+                     // Inputs
+                     .fbclk             (fbclk),
+                     .rst_b             (~fifo_empty_1a));       // Templated
+\end{lstlisting}
+
+Additionally, AUTOINSTPARAM can be used to set parameters in an instantiated
+module to parameters in the current module.
+
+\subsubsection{Automatic Wires}
+
+AUTOWIRE automatically creates wires referenced by AUTOINST that have not
+already been declared by the user.
+
 \subsection{GNU make}
+
+\label{sec:build}
+
+Another key tool that we utilized to facilitate development was GNU
+\texttt{make}.  \texttt{make} allowed us to integrate the simulation as well
+as the Xilinx build flows.  The build system provides a number of top level
+targets; in particular:
+
+\begin{itemize}
+\item{\texttt{sw} builds all software (including boot0, boot1, and the game);}
+\item{\texttt{fpga} runs a full pass through the synthesis flow;}
+\item{\texttt{sim} runs a Verilator build;}
+\item{\texttt{tests} rebuilds the toplevel simulation testbench;}
+\item{and \texttt{auto} reruns verilog-mode to regenerate AUTOs.}
+\end{itemize}
+
+Of interest is that the build system operates in terms of runs; each
+invocation of \texttt{make}, by default, carries a run ID of the time in which it was
+started, and all compilation takes place within a run directory unique to
+each run. This provides a few useful traits in the context of this project.
+For one, it allows us to easily revert to any old build, and to swap back
+and forth between two compiles that may have different debug features
+enabled; since the source is saved for each build, we are capable also of
+diffing two builds that may not have been committed. The other important
+ability that this provides is to run two builds in parallel; as we
+incrementally fix bugs (or try multiple techniques to avoid Xilinx bugs), we
+found it very important to be running multiple spins at the same time to
+have a constant stream of bitfiles to test.
+
+The build system also provided confidence in our tools. The Xilinx GUI in
+previous versions was known for doing incomplete rebuilds (i.e., not
+resynthesizing after files had changed), resulting in lost productivity
+while the wrong bitfile was being debugged; having a powerful system that we
+understood every part of was immensely useful, and absolutely critical to
+having a maintainable source base.
 
 \subsection{makecdc for ChipScope}
 
 \subsection{j4cbo}
 
+Although he is a tool, j4cbo was not used in the making of this project.
+
+rntz was used in the making of this project..
+
 \subsection{git}
+
+We used \texttt{git} for version control. Our repository is browsable at
+\url{https://github.com/teamdragonforce/virtexsquared/}. We like \texttt{git}.
 
 \part{Project Logistics}
 
