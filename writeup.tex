@@ -1467,6 +1467,31 @@ Copies an image of size \textbf{w} by \textbf{h} represented in \textbf{src} to 
 
 This function is implemented by setting the corresponding config registers of AccelBlit (setting read length last) and spin waiting until bliting is complete. By spin waiting, Cache does not eat up memory bandwidth and guarantees that bliting is complete when the function completes. 
 
+\section{Audio Library}
+
+Contains various audio helper functions that are implemented with the help of audio module.
+
+void audio\_master\_volume\_set(char \textbf{mute}, char \textbf{left}, char \textbf{right}):
+
+\begin{itemize}
+\item{\textbf{mute}: Volume is not muted if 0. Muted otherwise.}
+\item{\textbf{left}, \textbf{right}: Sets the volume of left and right speakers.}
+\end{itemize}
+
+void audio\_play(void* \textbf{location}, int \textbf{length}, int \textbf{mode}):
+
+\begin{itemize}
+\item{\textbf{location}: start location of the audio. (may need to be 64-byte aligned)}
+\item{\textbf{length}: length of the audio in bytes. The function will truncate the last 8 bits.}
+\item{\textbf{mode}: 0 = stop, 1 = play once, 2 = play repeatedly}
+\end{itemize}
+
+void audio\_stop():
+
+int audio\_samples\_played():
+
+int is\_audio\_done(int len): checks whether the audio module finished playing the audio given its length.
+
 \part{Miscellaneous System Notes}
 
 In this part, we describe other portions of the system that do not easily
