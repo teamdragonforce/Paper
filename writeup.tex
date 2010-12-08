@@ -335,7 +335,7 @@ zero; this allows the bus to simply OR together all responses.
 Since the SPAM bus is always on the core's clock domain, some synchronization 
 may be needed for CSRs on a different clock domain. Standard modules have been 
 provided to synchronize reads and writes; for more information on those, see 
-the documentation for the CSRAsync modules. 
+the documentation for the CSRAsync modules in section \ref{sec:csrasync}. 
 
 \section{Core Microarchitecture}
 
@@ -593,6 +593,251 @@ the requested data).}
 don't think we discard the rest of the data the MIG returns in its burst.}
 \end{itemize}
 
+\section{Synchronization Mechanisms}
+
+\label{sec:sync}
+
+Within virtexsquared, there are two ``utility'' modules that are commonly
+used for synchronizing across clock domain boundaries -- the CSR
+synchronizers, and the async FIFO.
+
+\subsection{CSR Synchronizers}
+
+\label{sec:csrasync}
+
+\subsubsection{Motivation and Design Overview}
+
+Since the virtexsquared system has many peripherals on different clock
+domains, it only makes sense to have a unified mechanism of synchronizing
+SPAM accesses between those domains and the core. Synchronization logic is
+not only difficult to write, but it is also difficult to verify the
+correctness of; to that end, by encapsulating the synchronization mechanisms
+as much as possible, we stand a much better chance of writing correct code.
+The Configuration Space Register (CSR) synchronizers are one of two primary
+mechanisms for synchronization; for the other, see the AsyncFifo
+implementation in section \ref{sec:fifo}.
+
+It was decided early on that CSRAsyncRead and CSRAsyncWrite should be two
+different modules, and that there should be no CSRAsyncReadWrite module.
+Since the registers that the CSR interfaces mirror are usually primarily
+controlled by the peripheral's internal logic, holding register state inside
+a ReadWrite module would result in vastly unnecessary complexity, and would
+substantially obscure the intent of the logic in the peripheral. (Indeed,
+often the resulting state of the register after a write operation is not the
+same as the data that was written.)
+
+The CSRAsyncRead and CSRAsyncWrite modules are designed to closely mirror
+the SPAM bus protocol; for many uses, the CPU side (on the cclk domain) can
+be directly or'ed in on the SPAM bus to implement a peripheral's CSR space.
+The target side (on the tclk domain) was designed to produce single cycle
+strobes that can be effectively used by a target's internal logic to trigger
+updates.
+
+\subsubsection{Interface}
+
+The CSRAsyncRead and CSRAsyncWrite modules are parameterized across the
+width of the register that they are synchronizing; the CSRAsyncWrite module
+is also parameterized for its reset value.  Both modules have two clock
+inputs, and their corresponding negated resets -- \texttt{cclk} is the clock
+corresponding to the CPU core that initiates a request, and \texttt{tclk} is
+the clock corresponding to the target peripheral.  All ports are suffixed
+with the clock domain on which they live (i.e., \texttt{rst\_b\_cclk} and
+\texttt{rst\_b\_tclk}).
+
+Both modules have the same core port structure for synchronizing between the
+two domains; the only difference in their portlist is in direction on the
+data port. The portlist for the read module is as such:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input                rd_strobe_cclk;
+output [(WIDTH-1):0] rd_data_cclk;
+output               rd_wait_cclk;
+output               rd_done_strobe_cclk;
+ 
+output               rd_strobe_tclk;
+input  [(WIDTH-1):0] rd_data_tclk;
+\end{lstlisting}
+
+This provides for a relatively straightforward mechanism for interfacing
+with the SPAM bus. For example, the following code for reading a counter was
+taken from the blit accelerator:
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+wire [30:0] rd_data_WRDONE;
+wire rd_done_strobe_WRDONE;
+ 
+CSRAsyncRead #(.WIDTH(31))
+  CSR_WRDONE_READ(/* NOT AUTOINST */
+        // Outputs
+        .rd_data_cclk      (rd_data_WRDONE),
+        .rd_wait_cclk      (),
+        .rd_done_strobe_cclk(rd_done_strobe_WRDONE),
+        .rd_strobe_tclk    (),
+        // Inputs
+        .cclk              (cclk),
+        .tclk              (fsabi_clk),
+        .rst_b_cclk        (cclk_rst_b),
+        .rst_b_tclk        (fsabi_rst_b),
+        .rd_strobe_cclk    (rd_decode &&
+                            (spamo_addr[4:0] == 5'b10100)),
+        .rd_data_tclk      (wrdone[30:0]));
+ 
+assign accel_blit__spami_busy_b =
+  /* ... */ | rd_done_strobe_WRDONE;
+assign accel_blit__spami_data =
+  {32{rd_done_strobe_WRDONE}} & {1'b0, rd_data_WRDONE};
+\end{lstlisting}
+
+The instantiation mechanism is somewhat bulky, but it is certainly better
+than reimplementing the synchronizer each time! Future work may be possible
+to extend verilog-mode to be able to automatically instantiate CSR
+synchronizers.
+
+\subsubsection{Implementation}
+
+The synchronizers are based around sound two-flop principles for
+synchronizing between clock domains. In order to transmit a value between
+the two clock domains, the ``hold-and-sample'' technique is used; once a
+flag is seen indicating that new data is ready to be transferred, the
+synchronizers wait a cycle before sampling the data and transmitting it to
+the recipient clock domain. Building on this principle, the synchronizers
+can be trivially implemented with a small amount of internal state to
+generate strobes and output data.
+
+All internal signals are named according to the clock domain on which they
+live; signals named \texttt{...\_tclk} are on the target clock, and signals
+named \texttt{...\_cclk} are on the core clock.  To synchronize a signal,
+the progression of naming \texttt{foosig\_cclk}, \texttt{foosig\_cclk\_s1},
+and \texttt{foosig\_cclk\_tclk} is used to represent the signal after no
+flops, one flop, and two flops, respectively.
+
+\subsection{Synchronous FIFO}
+
+\label{sec:syncfifo}
+
+Although the synchronous FIFO is not strictly a clock synchronization
+mechanism, it is presented in this section as a means to understanding the
+asynchronous FIFO, and since it is a fundamental building block of the
+system.
+
+\subsubsection{Motivation}
+
+There are a number of reasons to have a packaged-up FIFO utility. One is
+cleanliness and readability of code; an instantiation of a FIFO module is
+immediately apparent to a reader, while an implementation mixed in with
+other code is less so. Another reason for the Fifo module is the reduction
+of opportunities for bugs; every implementations of FIFOs scattered through
+the RTL is another opportunity for a mistake to appear, costing valuable
+debug time (around 20 minutes per synthesis run).
+
+\subsubsection{Implementation}
+
+The Fifo module is implemented as a block RAM with read and write pointers.
+Both pointers are initialize to zero; after a read or write, the appropriate
+pointer increments. If the pointers are equal, the FIFO is empty. (Each
+pointer is one bit wider than required to index into the RAM so that a full
+FIFO does not appear identical to an empty FIFO.)
+
+\subsubsection{Implementation: Parameters}
+
+\begin{itemize}
+\item{\textbf{DEPTH}: how many entries the FIFO can store}
+\item{\textbf{WIDTH}: how many bits each entry has, and the width of the input and
+output data ports}
+\item{\textbf{ALMOST}: how few entries away from full or empty the FIFO must be to be
+considered almost full or almost empty}
+\end{itemize}
+
+\subsubsection{Implementation: Portlist}
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input clk;
+input rst_b;
+ 
+input wr_en;
+input rd_en;
+input [WIDTH-1:0] wr_dat;
+ 
+output [WIDTH-1:0] rd_dat;
+output empty;
+output full;
+output [`ADDR_WIDTH:0] available;
+output afull;
+output aempty;
+\end{lstlisting}
+
+At a positive clock edge, when wr\_en is high, the data at wr\_dat is stored
+in the FIFO, and when rd\_en is high, the next entry in the FIFO is presented
+at rd\_dat.
+
+Interesting outputs:
+\begin{itemize}
+\item{\textbf{empty}: is high when the FIFO is empty}
+\item{\textbf{full}: is high when the FIFO is full}
+\item{\textbf{afull}: is high when there are ALMOST or fewer empty spaces left in the
+FIFO. \footnote{\Huge{\textbf{I'M ALMOST FULL!!!}}} }
+\item{\textbf{aempty}: is high when there are ALMOST or fewer entries in the FIFO}
+\item{\textbf{available}: the number of entries in the FIFO; the width of this port is
+log${}_2$ DEPTH + 1}
+\end{itemize}
+
+\subsection{Asynchronous FIFO}
+
+\label{sec:fifo}
+
+\subsubsection{Motivation}
+
+As with a simple FIFO, there are a number of motivations for a packaged
+cross-clock-domain FIFO utility: code reuse, clarity, and reduction of bugs.
+This last motivation carries significant additional weight for a
+cross-clock-domain FIFO: hardware crossing multiple clock domains is tricky,
+so the less of it that needs to be written, the better.
+
+\subsubsection{Implementation}
+
+The core fifo implementation is similar to that to that of the Fifo module
+(see section \label{sec:syncfifo}): a block RAM with read and write
+pointers.  Reads from and writes to the block RAM occur on the different
+clock domains.  To accommodate empty and full outputs, the pointers must be
+converted into grey code and passed across the clock domain boundary.  The
+empty output is on the read clock domain (so that the module using the FIFO
+can avoid reading when empty), and the full output is on the write clock
+domain (so that the module using the FIFO can avoid writing when full).  To
+accomplish this, both pointers are converted to grey code, passed through a
+register, and passed across the clock domain boundary, and passed through
+two more registers (to avoid metastability).
+
+Because of the delay associated with crossing the clock domain boundary, it
+is possible that the module may incorrectly indicate an empty or full FIFO. 
+However, it will be incorrect in the other direction (with a false
+negative).  This is guaranteed for the empty output because it is the write
+index which is late: there can be \textit{more} data in the FIFO than the
+reader knows about, but since the read index is not delayed, there is never
+\textit{less}.  (Similar reasoning holds for the full output.)
+
+\subsubsection{Implementation: Parameters}
+
+\begin{itemize}
+\item{\textbf{DEPTH}: how many entries the FIFO can store}
+\item{\textbf{WIDTH}: how many bits each entry has, and the width of the input and
+output data ports}
+\end{itemize}
+
+\subsubsection{Implementation: Portlist}
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input iclk;
+input oclk;
+input iclk_rst_b;
+input oclk_rst_b;
+ 
+input wr_en;
+input rd_en;
+input [WIDTH-1:0] wr_dat;
+ 
+output [WIDTH-1:0] rd_dat;
+output empty;
+output full;
+\end{lstlisting}
+
 \section{Simple DMA Read Controller}
 \label{sec:dmac}
 
@@ -805,11 +1050,141 @@ the DMA (needed for triple buffering).}
 The Framebuffer is used by the multibuf library (see section
 \ref{sec:multibuf}).
 
+\section{Audio}
+
+\label{sec:audio}
+
+The audio module streams sample frames to the AC'97 codec to generate sound.
+
+\subsection{Motivation}
+
+Our application required an audio and we only needed to make simple
+modifications to the SimpleDMAReadController (see section \ref{sec:dmac})
+for it to be usable for producing audio from a range of address.  We also
+had ACLink and AC97Conf that are from our 2nd lab.
+
+\subsection{Implementation}
+
+Audio module contains few improvements from our AC97 base code:
+
+\begin{itemize}
+\item{AudioGen is replaced with DMA to fetch audio data from DRAM}
+\item{Some additional logic has been added because DMA provides data in
+chunks of 8 bytes.}
+\item{AC97 configuration can be controlled through the SPAM bus.}
+\end{itemize}
+
+\subsection{Audio Configuration Registers}
+
+We have chosen these addresses to not conflict with the DMA configuration
+registers.  The registers are:
+
+\begin{itemize}
+\item{\textbf{0x84000100 (write only)}: Master Volume}
+\item{\textbf{0x84000104 (write only)}: Microphone Volume}
+\item{\textbf{0x84000108 (write only)}: Line In Volume}
+\item{\textbf{0x8400010C (write only)}: Audio CD Volume}
+\item{\textbf{0x84000110 (write only)}: Audio PCM Volume}
+\item{\textbf{0x84000114 (write only)}: Audio Recording Select}
+\item{\textbf{0x84000118 (write only)}: Audio Recording Gain}
+\end{itemize}
+
+\subsection{To do}
+
+\begin{itemize}
+\item{Need a way to stop/pause a playing audio.}
+\end{itemize}
+
+\section{PS2}
+\label{sec:ps2}
+
+The PS2 module obtains PS2 keyboard scancode data and stores each value into
+a fifo such that the value could be obtained one at a time through the SPAM
+bus.
+
+\subsection{Portlist}
+
+The PS2 module includes the SPAM portlist (see section \ref{sec:spam}),
+prefixed by ps2\_\_ on all outbound.
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=Verilog]
+input ps2clk;
+input ps2data;
+\end{lstlisting}
+
+The PS2 module complies with the timings listed in the
+\href{http://www.digilentinc.com/Data/Products/NEXYS2/Nexys2_rm.pdf}{Nexys 2
+reference manual} on page 8.
+
+\subsection{Implementation Details}
+
+Since the data arrives asynchronously (it is a keyboard input afterall),
+ps2clk must first be latched with 2 flip flops to get a stable value.
+
+Then, one would wish to obtain each data by checking the value at the
+negative edge. Unfortunately, ps2clk is not a real clock so the method
+doesn't work. Instead, the value of ps2clk is checked every positive edge of
+the core clock(cclk) and detects the falling edge of ps2clk. This is a valid
+method only because the core clock is much faster than the ps2clk.
+
+Once all 11 bits (\{start\_bit, scancode\_data[7:0], odd\_parity\_bit,
+stop\_bit\}) are received and odd parity check matches, scancode data is
+stored in the queue.
+
+When a request for scancode data is made through the spam bus, if the fifo
+is empty, 0xFFFFFFFF is returned. Otherwise, a value is dequeued from the
+fifo and returns \{24'h0, scancode\_data\}.
+
+\subsection{Usage}
+
+For an example of usage, see the keyhelp library in section
+\ref{sec:keyhelp}.
+
+\subsection{To Do}
+
+\begin{itemize}
+\item{Sending data to the keyboard to have Num Lock, Caps Lock, and Scroll
+Lock lights flashing when appropriate. (Or change the scancode set of the
+keyboard if we want to use 15-410 version of process\_scancode instead)}
+\item{The keyboard should still work after being unplugged and replugged
+many times.}
+\end{itemize}
 
 
-\section{Peripheral Architecture}
+\section{Timer}
 
-is another section to be filled in.
+\label{sec:timer}
+
+The timer module provides the number of clock cycles since reset through the
+SPAM bus (see section \ref{sec:spam}).
+
+\subsection{Motivation}
+
+As we started writing the game and painted arrows on the screen, we quickly
+realized that performance may become an issue. Whenever we made a change to
+RTL or our code, we needed a way to measure performance. The number of clock
+cycles since reset seemed to be the easiest way to measure this.
+
+\subsection{Portlist}
+
+The Timer module includes the SPAM portlist (see section \ref{sec:spam}),
+prefixed by timer\_\_ on all outbound.
+
+\subsection{Usage Example}
+\begin{lstlisting}[basicstyle=\footnotesize,language=C]
+#include <minilib.h>
+int *timer = 0x86000000;
+printf("Cycles: %d\r\n", *timer);
+\end{lstlisting}
+
+\subsection{To Do}
+
+\begin{itemize}
+\item{Have a real timer that returns real time in ms since reset instead of
+core clock cycles}
+\item{Clock cycle counter overflows too often (approximately every 30
+seconds)}
+\end{itemize}
 
 \part{Software Design}
 
