@@ -813,8 +813,114 @@ is another section to be filled in.
 
 \part{Software Design}
 
-In this part, we mention salient libraries that we designed to abstract some
-of the details of the hardware.
+In this part, we mention salient libraries located in \texttt{sw/lib} that we 
+designed to abstract some of the details of the hardware.
+
+\section{Multibuf Library}
+
+\label{sec:multibuf}
+
+Multibuf library implements \href{http://en.wikipedia.org/wiki/Multiple_buffering#Triple_buffering}{triple buffering} for screen display 
+
+\subsection{Motivation}
+
+riginally, we had double buffering but performance was an issue. In double buffering, after the framebuffer start address has switched, the code couldn't continue writing to the new buffer because the dma may not have started reading from the new address yet. This caused a notable choppiness of the arrows going up the screen in Stepmania. After measuring the time this took with Timer module (see section \ref{sec:timer}), we decided to implement triple buffering. 
+
+\subsection{Implementation Details}
+
+multibuf\_init allocates three arrays of size (width*height*4+64) bytes, aligns it to 64 bytes (because of the warning in DMA controller(See section \ref{sec:dmac}) ), and calls multibuf\_flip to provide a new buffer.
+
+multibuf\_flip sets the frame buffer DMA's start\_addr (0x82000000) to the buffer that is currently writing and provides a new buffer that the DMA is currently not reading (can be read from 0x82000014). Since only two buffers could be used in the worst case, there is always a new buffer that could be returned immediately.
+
+\subsection{Example Usage}
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=C]
+   multibuf_t multibuf;
+   int* buf;
+   buf = multibuf_init(&multibuf, 640, 480); /* 640 by 480 screen */
+   /* fill the buffer of size 640*480 ints where the last 3 bytes are BGR (thanks to little endianness)
+   and whatever you feel like in the first byte */
+   buf = multibuf_flip(&multibuf); 
+   /* now the buffer you wrote to the buffer will be displayed on the screen and you 
+      can write more stuff to the new buffer */
+   buf = multibuf_flip(&multibuf);
+\end{lstlisting}
+
+\section{Keyhelp Library}
+
+\label{sec:keyhelp}
+
+Keyhelp library contains a function to process scancode and other helper macros to read keyboard input
+
+\subsection{Motivation}
+
+After implementing the RTL for obtaining scancode from PS/2, it became apparent that we need a function like process\_scancode from 15-410 kernel. We wanted to use the process\_scancode code that they had but the process\_scancode that 15-410 kernel has implemented is for set 1 scancodes and the default scancodes we got when we plugged in our keyboard was set 2. That meant that we either had to modify our RTL to support changing sets or had to write a new process\_scancode function. We ended up writing a new process\_scancode because writing more RTL is more difficult than writing more C code. (See \href{http://en.wikipedia.org/wiki/Scancode}{scancode} for differences) 
+
+\subsection{Implementation}
+
+The implementation of process\_scancode is very similar to the one from 15-410 except it is for scancode set 2 and doesn't implement all the keys. It contains an internal state machine to keep track of the current state of the keyboard and returns a value of type kh\_type that could be used with some of the macros from keyhelp.h as shown in example usage.
+
+\subsection{Example Usage}
+
+\begin{lstlisting}[basicstyle=\footnotesize,language=C]
+   #include "keyhelp.h"
+ 
+   volatile unsigned int* scancodeaddr = 0x85000000;
+   unsigned int scancode;
+   kh_type k;
+   char new_char;
+ 
+   while ((scancode = *scancodeaddr) != 0xffffffff) {
+      k = process_scancode(scancode);
+      if (KH_HAS_CHAR(k)) {
+         new_char = KH_GET_CHAR(k);
+         if (!KH_IS_RELEASING(k)) {
+            switch (new_char) {
+               case 'z': /* insert code here */
+               case 'a': /* insert code here, etc. */ 
+               /* etc. etc. */
+            }
+         }
+ 
+      }
+   }
+\end{lstlisting}
+
+\section{Accelerator Library}
+
+\label{sec:accel_lib}
+
+Uses hardware accelerator (See section \ref{sec:accel}) to perform acceleration of clearing the framebuffer and bliting images onto the screen.
+
+\subsection{Motivation}
+
+See section \ref{sec:accel}
+
+\subsection{accel\_fill}
+
+(variable names are bolded)
+
+accel\_fill(unsigned int* \textbf{base}, unsigned int \textbf{value}, unsigned int \textbf{words})
+
+Writes \textbf{value} for the next \textbf{words} words starting from \textbf{base}.
+
+\subsubsection{Implementation}
+
+This function is implemented by setting the corresponding config registers of AccelClear (setting length last) and spin waiting until clearing is complete. By spin waiting, Cache does not eat up memory bandwidth and guarantees that bliting is complete when the function completes.
+
+\subsection{accel\_blit}
+
+(variable names are bolded)
+
+accel\_blit(unsigned int* \textbf{base}, unsigned int* \textbf{src}, unsigned int \textbf{w},
+            unsigned int \textbf{h})
+
+Copies an image of size \textbf{w} by \textbf{h} represented in \textbf{src} to \textbf{dest} 
+(framebuffer) assuming that the screen is 640 pixels wide.
+
+\subsubsection{Implementation}
+
+This function is implemented by setting the corresponding config registers of AccelBlit (setting read length last) and spin waiting until bliting is complete. By spin waiting, Cache does not eat up memory bandwidth and guarantees that bliting is complete when the function completes. 
 
 \part{Miscellaneous System Notes}
 
