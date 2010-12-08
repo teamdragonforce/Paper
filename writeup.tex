@@ -13,10 +13,10 @@
 %\usepackage[all]{hypcap}
 
 \setcounter{secnumdepth}{3}
-\setcounter{tocdepth}{3}
+\setcounter{tocdepth}{1}
 
 
-\title{virtexsquared: ARM-like System-on-Chip on an FPGA}
+\title{{\Huge virtexsquared:}\\an ARM-like System-on-Chip on an FPGA}
 
 \author{Joshua Wise\\
 \texttt{$<$jwise@andrew.cmu.edu$>$} \and
@@ -34,38 +34,39 @@ Bradley Yoo\\
 The authors provide a report on the completed development of an ARM-like
 System-on-Chip built on a Xilinx Virtex-5 FPGA.  A high-level overview of
 the design is provided, as well as detailed examinations of various
-submodules within the system.  
+submodules within the system.  An examination of both the hardware and
+software stack is provided, and the authors take a moment to reflect.
 
 \end{abstract}
 
-\vspace{0.1in} % fff fu LaTeX
+\tableofcontents
 
 \chapter{Introduction}
 
 In fulfillment of the 18-545 Advanced Digital Design Capstone, this group
-designed and implemented a peripheral layer for an ARM-like core. 
-The system is built around two memory buses, and contains I/O cores to
-interface with a smattering of peripherals, including:
+designed and implemented a System on a Chip on an FPGA, based around a small
+ARM-like core.  The system is built around two memory buses, and contains
+I/O cores to interface with a smattering of peripherals, including:
 
 \begin{itemize}
-\item{DVI/VGA output from Chrontel CH7301C; video output is cached in a
-framebuffer in main memory.}
-\item{RS-232 serial output.}
-\item{AC'97 audio with Analog AD1981B; audio output is cached in a
-a simple main memory buffer.}
-\item{PS/2 keyboard.}
-\item{CompactFlash via the Xilinx SystemACE controller.}
-\item{DDR2 SODIMM; interface glue is provided using Xilinx's predesigned
-Memory Interface Generator (MIG) IP.}
+\item{DVI/VGA output from Chrontel CH7301C, for which video is cached in a
+framebuffer in main memory;}
+\item{RS-232 serial output;}
+\item{AC'97 audio with Analog AD1981B, for which audio to be output is cached in a
+a simple main memory buffer;}
+\item{PS/2 keyboard input;}
+\item{CompactFlash via the Xilinx SystemACE controller;}
+\item{and main memory via a DDR2 SODIMM, for which interface glue is
+provided using Xilinx's predesigned Memory Interface Generator (MIG) IP.}
 \end{itemize}
 
 The system contains various non-I/O cores to provide additional functionality,
 including:
 
 \begin{itemize}
-\item{Timer}
-\item{Bootstrap program preloader}
-\item{Accelerators: memory set and image clear}
+\item{a cycle counter for precise application timing;}
+\item{a preloader to load the initial bootstrap into RAM;}
+\item{and memory set and image blit accelerators.}
 \end{itemize}
 
 A primary goal of this peripheral layer is to be reused in 18-447; the system
@@ -73,6 +74,12 @@ is designed to be simple to interface with from a core perspective, and
 hence usable for students in an introductory computer architecture class. 
 The core, in particular, has a moderate \textit{anti}-goal of high
 performance.
+
+The system has been implemented over the course of the Fall 2010 semester to
+the point of successfully executing a small rhythm game that shows off the
+system's ability to render video in real time and the capability to
+synchronize keyboard input with video and audio output; this completes the
+original goal.
 
 \chapter{Hardware Design}
 
@@ -1813,7 +1820,7 @@ understood every part of was immensely useful, and absolutely critical to
 having a maintainable source base.
 
 
-\chapter{Project Logistics}
+\chapter{Project Reflections}
 
 In this part, we describe the logistics of the completion of this project,
 including miscellaneous sections required for completion of this report.
@@ -1838,6 +1845,7 @@ Pursuant to the requirements of this report, each team member has written a
 section on their notes from the class.
 
 \subsection{Joshua Wise}
+\label{sec:joshua}
 
 I came into this class at the beginning with one specific goal in mind --
 come Hell or high water, I came here to really figure out what it would take
@@ -1975,5 +1983,113 @@ One of the things that is annoying about this class is the inability of the cour
 \subsubsection{Conclusion}
 
 I'm very excited that we have managed to produce something that not only works but will be reused for 18-447 (Computer Architecture) next semester. I think that class will become far more meaningful and interesting if the code they produced in class actually ran on the fpga board with display, sound, and keyboard instead of just running on simulation.
+
+\section{In the End}
+
+\begin{verbatim}
+joshua@fuggle:~/virtexsquared$ find rtl/ -iname '*.v' -o -iname '*.vh' | \
+grep -v mig/ | grep -v chipscope | xargs wc -l | sort -n
+     9 rtl/fsab/clog2.vh
+    13 rtl/fsab/dma_config_defines.vh
+    14 rtl/spam/spam_defines.vh
+    32 rtl/fsab/fsab_defines.vh
+    38 rtl/core/RegFile.v
+    46 rtl/spam/SPAM_Timer.v
+    48 rtl/console/SyncGen.v
+    63 rtl/util/Fifo.v
+    64 rtl/core/Writeback.v
+    70 rtl/core/Fetch.v
+    73 rtl/fpga/RS232TX.v
+    79 rtl/core/ARM_Constants.v
+    83 rtl/spam/SPAM_ConsoleIO.v
+    91 rtl/util/AsyncFifo.v
+    96 rtl/fsab/memory_defines.vh
+   100 rtl/fsab/FSABPreload.v
+   107 rtl/util/CSRAsyncWrite.v
+   108 rtl/util/CSRAsyncRead.v
+   114 rtl/audio/ACLink.v
+   129 rtl/audio/AC97Conf.v
+   131 rtl/fsab/sim/SimpleDMAReadControllerTester.v
+   159 rtl/fsab/FSABArbiter.v
+   178 rtl/ps2/PS2.v
+   217 rtl/spam/SPAM_LCD.v
+   221 rtl/console/iic_init.v
+   242 rtl/accel/AccelClear.v
+   257 rtl/fsab/sim/FSABSimMemory.v
+   260 rtl/spam/SPAM_SysACE.v
+   304 rtl/fsab/FSABArbiterFIFO.v
+   308 rtl/sim/FifoTb.v
+   309 rtl/core/Issue.v
+   322 rtl/console/Framebuffer.v
+   351 rtl/core/Decode.v
+   353 rtl/core/ICache.v
+   370 rtl/core/DCache.v
+   395 rtl/sim/system.v
+   398 rtl/accel/AccelBlit.v
+   427 rtl/audio/Audio.v
+   458 rtl/core/Execute.v
+   462 rtl/fsab/SimpleDMAReadController.v
+   502 rtl/core/Core.v
+   550 rtl/fsab/FSABMemory.v
+   796 rtl/fpga/system.v
+   861 rtl/core/Memory.v
+ 10208 total
+joshua@fuggle:~/virtexsquared$ find sw -iname '*.[chS]' | grep -v util | \
+grep -v res | xargs wc -l  | sort -n
+     4 sw/graphics/crt0.S
+     6 sw/lib/elfload.h
+     7 sw/lib/malloc.h
+    11 sw/lib/serial.h
+    14 sw/lib/console.h
+    16 sw/audio/crt0.S
+    16 sw/boot1/crt0.S
+    16 sw/fill_perf/crt0.S
+    16 sw/game/crt0.S
+    16 sw/keyboard/crt0.S
+    17 sw/lib/multibuf.h
+    18 sw/boot0/crt0.S
+    19 sw/lib/qalloc.h
+    22 sw/lib/accel.h
+    26 sw/lib/stdint.h
+    32 sw/lib/doprnt.h
+    32 sw/lib/malloc.c
+    32 sw/lib/sysace.h
+    37 sw/game/gencol.c
+    41 sw/lib/audio.h
+    42 sw/lib/minilib.h
+    49 sw/lib/accel.c
+    52 sw/lib/keyhelp.h
+    52 sw/lib/multibuf.c
+    52 sw/lib/serial.c
+    70 sw/keyboard/boot1.c
+    73 sw/lib/fat16.h
+    76 sw/lib/elfload.c
+    78 sw/lib/qalloc.c
+    87 sw/boot1/boot1.c
+    99 sw/lib/console.c
+   101 sw/lib/audio.c
+   101 sw/lib/sysace.c
+   108 sw/audio/boot1.c
+   147 sw/fill_perf/boot1.c
+   161 sw/lib/sprintf.c
+   202 sw/boot0/charset.h
+   203 sw/lib/minilib.c
+   221 sw/lib/fat16.c
+   239 sw/lib/keyhelp.c
+   264 sw/boot0/boot0.c
+   288 sw/lib/elf.h
+   514 sw/lib/doprnt.c
+   786 sw/game/game.c
+   813 sw/graphics/boot1.c
+  5276 total
+\end{verbatim}
+
+\vspace{2.2in}
+
+\center{\Large{Through the fire and the flames, we carry on.}}
+\vspace{0.8in}
+\center{\textit{Josiah Boning, Joshua Wise, Bradley Yoo}}
+\vspace{0.1in}
+\center{\textit{December 8, 2010}}
 
 \end{document}
