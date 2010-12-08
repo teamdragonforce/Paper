@@ -1572,7 +1572,7 @@ virtexsquared logo are displayed on screen.  (See figure \ref{img:boot0}.)
 
 \begin{figure}
   \centering
-    \includegraphics[width=0.49\textwidth]{boot0.png}
+    \includegraphics[width=0.7\textwidth]{boot0.png}
   \caption{boot0's failure display.} \label{img:boot0}
 \end{figure}
 
@@ -1624,11 +1624,6 @@ loading a series of resources and eventually presenting a menu.
 virtexsquared is developed using some standard tools, and some custom tools. 
 The parts of the virtexsquared development system that appared to be of
 particular use are elucidated below.
-
-\subsection{Xilinx XST}
-
-The Xilinx tools are invoked in two major phases: xst and xflow. They both
-suck.
 
 \subsection{verilog-mode}
 
@@ -1710,42 +1705,10 @@ module to parameters in the current module.
 AUTOWIRE automatically creates wires referenced by AUTOINST that have not
 already been declared by the user.
 
-\subsection{GNU make}
+\subsection{Xilinx XST}
 
-\label{sec:build}
-
-Another key tool that we utilized to facilitate development was GNU
-\texttt{make}.  \texttt{make} allowed us to integrate the simulation as well
-as the Xilinx build flows.  The build system provides a number of top level
-targets; in particular:
-
-\begin{itemize}
-\item{\texttt{sw} builds all software (including boot0, boot1, and the game);}
-\item{\texttt{fpga} runs a full pass through the synthesis flow;}
-\item{\texttt{sim} runs a Verilator build;}
-\item{\texttt{tests} rebuilds the toplevel simulation testbench;}
-\item{and \texttt{auto} reruns verilog-mode to regenerate AUTOs.}
-\end{itemize}
-
-Of interest is that the build system operates in terms of runs; each
-invocation of \texttt{make}, by default, carries a run ID of the time in which it was
-started, and all compilation takes place within a run directory unique to
-each run. This provides a few useful traits in the context of this project.
-For one, it allows us to easily revert to any old build, and to swap back
-and forth between two compiles that may have different debug features
-enabled; since the source is saved for each build, we are capable also of
-diffing two builds that may not have been committed. The other important
-ability that this provides is to run two builds in parallel; as we
-incrementally fix bugs (or try multiple techniques to avoid Xilinx bugs), we
-found it very important to be running multiple spins at the same time to
-have a constant stream of bitfiles to test.
-
-The build system also provided confidence in our tools. The Xilinx GUI in
-previous versions was known for doing incomplete rebuilds (i.e., not
-resynthesizing after files had changed), resulting in lost productivity
-while the wrong bitfile was being debugged; having a powerful system that we
-understood every part of was immensely useful, and absolutely critical to
-having a maintainable source base.
+The Xilinx tools are invoked in two major phases: xst and xflow. They both
+suck.
 
 \subsection{makecdc for ChipScope}
 
@@ -1787,6 +1750,18 @@ project = {
         },
 \end{lstlisting}
 
+\subsection{Verilator}
+
+Verilator is an optimizing open source simulator which gives decent
+warnings, unlike xst. We like Verilator.
+
+We used Verilator both as a simulation tool, and a lint tool for
+non-simulatable code (via the \texttt{--lint-only} option).  \footnote{``But
+it wasn't a very good lint tool...'' ``Yeah, but...  did it save our
+asses?'' ``...yes.''} The \texttt{sim} target in the makefile builds for
+simulation; this produces the executable \texttt{sim/Vsystem} in the build
+directory.
+
 \subsection{j4cbo}
 
 Although he is a tool, j4cbo was not used in the making of this project.
@@ -1797,6 +1772,44 @@ rntz was used in the making of this project.
 
 We used \texttt{git} for version control. Our repository is browsable at
 \url{https://github.com/teamdragonforce/virtexsquared/}. We like \texttt{git}.
+
+\subsection{GNU make}
+
+\label{sec:build}
+
+Another key tool that we utilized to facilitate development was GNU
+\texttt{make}.  \texttt{make} allowed us to integrate the simulation as well
+as the Xilinx build flows.  The build system provides a number of top level
+targets; in particular:
+
+\begin{itemize}
+\item{\texttt{sw} builds all software (including boot0, boot1, and the game);}
+\item{\texttt{fpga} runs a full pass through the synthesis flow;}
+\item{\texttt{sim} runs a Verilator build;}
+\item{\texttt{tests} rebuilds the toplevel simulation testbench;}
+\item{and \texttt{auto} reruns verilog-mode to regenerate AUTOs.}
+\end{itemize}
+
+Of interest is that the build system operates in terms of runs; each
+invocation of \texttt{make}, by default, carries a run ID of the time in which it was
+started, and all compilation takes place within a run directory unique to
+each run. This provides a few useful traits in the context of this project.
+For one, it allows us to easily revert to any old build, and to swap back
+and forth between two compiles that may have different debug features
+enabled; since the source is saved for each build, we are capable also of
+diffing two builds that may not have been committed. The other important
+ability that this provides is to run two builds in parallel; as we
+incrementally fix bugs (or try multiple techniques to avoid Xilinx bugs), we
+found it very important to be running multiple spins at the same time to
+have a constant stream of bitfiles to test.
+
+The build system also provided confidence in our tools. The Xilinx GUI in
+previous versions was known for doing incomplete rebuilds (i.e., not
+resynthesizing after files had changed), resulting in lost productivity
+while the wrong bitfile was being debugged; having a powerful system that we
+understood every part of was immensely useful, and absolutely critical to
+having a maintainable source base.
+
 
 \chapter{Project Logistics}
 
